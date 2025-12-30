@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "date": "2024-12-28",
+    "location": "ClubWPT Gold",
+    "stake": "1/2",
+    "buy_in": 200,
+    "cash_out": 340,
+    "duration_hours": 4.5,
+    "notes": "Solid session, hit two sets"
+  },
+  {
+    "id": 2,
+    "date": "2024-12-25",
+    "location": "ClubWPT Gold",
+    "stake": "1/2",
+    "buy_in": 200,
+    "cash_out": 150,
+    "duration_hours": 3.0,
+    "notes": "Ran into coolers, folded AK pre twice"
+  },
+  {
+    "id": 3,
+    "date": "2024-12-20",
+    "location": "Home Game - Berkeley",
+    "stake": "0.25/0.50",
+    "buy_in": 50,
+    "cash_out": 125,
+    "duration_hours": 6.0,
+    "notes": "Great reads on opponent tendencies, exploited calling station"
+  },
+  {
+    "id": 4,
+    "date": "2024-12-15",
+    "location": "ClubWPT Gold",
+    "stake": "1/2",
+    "buy_in": 300,
+    "cash_out": 280,
+    "duration_hours": 5.5,
+    "notes": "Break-even session, few playable hands"
+  }
+]
