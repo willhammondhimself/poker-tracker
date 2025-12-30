@@ -131,33 +131,50 @@ def render_hand_logger() -> None:
     if "used_cards" not in st.session_state:
         st.session_state.used_cards = set()
 
-    st.markdown("**Select your hole cards:**")
+    st.markdown("**Select your hole cards** *(type shortcuts like `As Kh` or click to select)*")
 
-    col1, col2, col3 = st.columns([1, 1, 2])
+    col1, col2, col3 = st.columns([1, 1, 1])
 
     with col1:
-        st.markdown("**Card 1:**")
-        card1 = render_card_selector("hole_card_1", st.session_state.used_cards)
+        card1 = render_card_selector(
+            "hole_card_1",
+            st.session_state.used_cards,
+            label="Card 1"
+        )
         if card1:
             st.session_state.used_cards.add(card1)
-            st.success(f"Card 1: {card1[0]}{card1[1]}")
 
     with col2:
-        st.markdown("**Card 2:**")
-        card2 = render_card_selector("hole_card_2", st.session_state.used_cards)
+        card2 = render_card_selector(
+            "hole_card_2",
+            st.session_state.used_cards,
+            label="Card 2"
+        )
         if card2:
             st.session_state.used_cards.add(card2)
-            st.success(f"Card 2: {card2[0]}{card2[1]}")
 
     with col3:
-        st.markdown("**Hand Preview:**")
+        st.markdown("### 🎴 Hand Preview")
         if card1 and card2:
-            st.markdown(f"### {card1[0]}{card1[1]} {card2[0]}{card2[1]}")
+            # Large card display
+            c1_color = "#E74C3C" if card1[1] in ["♥", "♦"] else "#2C3E50"
+            c2_color = "#E74C3C" if card2[1] in ["♥", "♦"] else "#2C3E50"
+            st.markdown(
+                f'<div style="font-size: 48px; font-weight: bold; text-align: center; margin: 20px 0;">'
+                f'<span style="color: {c1_color};">{card1[0]}{card1[1]}</span> '
+                f'<span style="color: {c2_color};">{card2[0]}{card2[1]}</span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
         else:
             st.info("Select both cards to see your hand")
 
-        if st.button("🔄 Reset Cards"):
+        if st.button("🔄 Reset All Cards", use_container_width=True):
             st.session_state.used_cards = set()
+            # Clear selector states
+            for k in list(st.session_state.keys()):
+                if k.startswith("card_selector_"):
+                    del st.session_state[k]
             st.rerun()
 
     st.markdown("---")

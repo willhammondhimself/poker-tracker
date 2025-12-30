@@ -1,10 +1,11 @@
 """Smart Card Selector component for Quant Poker Analytics.
 
-Provides a professional 2-click card entry interface with visual feedback
-and dead card tracking.
+Provides a professional 2-click card entry interface with visual feedback,
+dead card tracking, and keyboard shortcuts for rapid entry.
 """
 
 import streamlit as st
+import re
 from typing import Optional
 
 
@@ -17,6 +18,17 @@ SUIT_COLORS = {
     "♥": "#E74C3C",  # Red
     "♦": "#E74C3C",  # Red
 }
+
+# Keyboard mapping for suits
+SUIT_MAP = {
+    "s": "♠", "S": "♠", "♠": "♠",
+    "h": "♥", "H": "♥", "♥": "♥",
+    "d": "♦", "D": "♦", "♦": "♦",
+    "c": "♣", "C": "♣", "♣": "♣",
+}
+
+# Valid rank characters
+VALID_RANKS = set("AKQJT98765432")
 
 
 def _apply_card_selector_styles() -> None:
@@ -86,16 +98,45 @@ def _apply_card_selector_styles() -> None:
             box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
         }
 
-        /* Clear button */
+        /* Clear button - fixed width to prevent text wrap */
         .stButton > button[data-clear] {
             background: #E74C3C;
             color: white;
             border: none;
             font-weight: 600;
+            white-space: nowrap;
+            min-width: 80px;
         }
 
         .stButton > button[data-clear]:hover {
             background: #C0392B;
+        }
+
+        /* Card label header */
+        .card-label {
+            font-size: 1.4em;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .card-label-1 {
+            background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%);
+            color: white;
+        }
+
+        .card-label-2 {
+            background: linear-gradient(135deg, #9B59B6 0%, #8E44AD 100%);
+            color: white;
+        }
+
+        /* Quick entry input styling */
+        .quick-entry input {
+            font-family: monospace;
+            font-size: 1.2em;
+            text-transform: uppercase;
         }
         </style>
         """,
@@ -103,24 +144,62 @@ def _apply_card_selector_styles() -> None:
     )
 
 
-def render_card_selector(
-    key: str, used_cards: Optional[set[tuple[str, str]]] = None
-) -> Optional[tuple[str, str]]:
-    """Render interactive card selector with 2-click entry system.
+def parse_card_input(text: str) -> Optional[tuple[str, str]]:
+    """Parse keyboard input into a card tuple.
 
-    User selects rank first, then suit. Cards already in use are greyed out
-    and disabled.
+    Supports formats:
+    - "As" or "AS" -> ("A", "♠")
+    - "Kh" -> ("K", "♥")
+    - "Td" -> ("T", "♦")
+    - "9c" -> ("9", "♣")
+
+    Args:
+        text: Input string like "As", "Kh", etc.
+
+    Returns:
+        (rank, suit) tuple or None if invalid
+    """
+    text = text.strip()
+    if len(text) < 2:
+        return None
+
+    rank = text[0].upper()
+    suit_char = text[1]
+
+    if rank not in VALID_RANKS:
+        return None
+
+    suit = SUIT_MAP.get(suit_char)
+    if suit is None:
+        return None
+
+    return (rank, suit)
+
+
+def render_card_selector(
+    key: str,
+    used_cards: Optional[set[tuple[str, str]]] = None,
+    label: Optional[str] = None,
+) -> Optional[tuple[str, str]]:
+    """Render interactive card selector with 2-click entry and keyboard shortcuts.
+
+    User can either:
+    1. Click rank then suit (2-click entry)
+    2. Type shorthand like "As" for Ace of Spades (keyboard entry)
+
+    Cards already in use are greyed out and disabled.
 
     Args:
         key: Unique key for this selector instance
         used_cards: Set of (rank, suit) tuples representing unavailable cards
+        label: Optional label like "Card 1" or "Card 2" to display
 
     Returns:
         Selected card as (rank, suit) tuple, or None if no selection made
 
     Example:
         >>> used = {("A", "♠"), ("K", "♥")}
-        >>> card = render_card_selector("hole_card_1", used)
+        >>> card = render_card_selector("hole_card_1", used, label="Card 1")
         >>> if card:
         ...     st.write(f"Selected: {card[0]}{card[1]}")
     """
@@ -144,6 +223,31 @@ def render_card_selector(
 
     # Container for selector
     st.markdown('<div class="card-selector-container">', unsafe_allow_html=True)
+
+    # Display prominent label if provided
+    if label:
+        label_class = "card-label-1" if "1" in label else "card-label-2"
+        st.markdown(
+            f'<div class="card-label {label_class}">{label}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Quick keyboard entry
+    quick_input = st.text_input(
+        "Quick entry (e.g., As, Kh, Td)",
+        key=f"{key}_quick",
+        placeholder="Type: As, Kh, Td, 9c...",
+        label_visibility="collapsed",
+    )
+
+    if quick_input:
+        parsed = parse_card_input(quick_input)
+        if parsed and parsed not in used_cards:
+            state["selected_rank"] = parsed[0]
+            state["selected_suit"] = parsed[1]
+            state["completed_card"] = parsed
+
+    st.markdown("---")
 
     # Step 1: Rank Selection
     st.markdown("**Step 1: Select Rank**")
