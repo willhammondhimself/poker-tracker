@@ -10,6 +10,7 @@ from utils.data_loader import (
     save_session,
     get_session,
     update_session,
+    delete_session,
     save_hand,
     load_hands,
 )
@@ -18,6 +19,8 @@ from components import (
     render_start_session_form,
     render_end_session_form,
     render_card_selector,
+    render_board_cards,
+    render_analytics_page,
 )
 
 
@@ -149,6 +152,103 @@ def render_dashboard() -> None:
         hide_index=True,
     )
 
+    # Session Management
+    st.markdown("---")
+    with st.expander("⚙️ Manage Sessions"):
+        # Filter to completed sessions only
+        completed_sessions = [s for s in sessions if s.get("status") != "active"]
+
+        if not completed_sessions:
+            st.info("No completed sessions to manage.")
+        else:
+            # Session selector
+            session_options = {
+                f"{s.get('date')} - {s.get('location')} ({s.get('stake')}) - ${s.get('profit', 0):+,}": s.get("id")
+                for s in sorted(completed_sessions, key=lambda x: x.get("date", ""), reverse=True)
+            }
+
+            selected_label = st.selectbox(
+                "Select Session",
+                options=list(session_options.keys()),
+            )
+
+            if selected_label:
+                selected_id = session_options[selected_label]
+                selected_session = get_session(selected_id)
+
+                if selected_session:
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown("**Session Details:**")
+                        st.write(f"📅 Date: {selected_session.get('date')}")
+                        st.write(f"📍 Location: {selected_session.get('location')}")
+                        st.write(f"💰 Stake: {selected_session.get('stake')}")
+                        st.write(f"💵 Buy-in: ${selected_session.get('buy_in', 0):,}")
+                        st.write(f"💸 Cash-out: ${selected_session.get('cash_out', 0):,}")
+                        profit = selected_session.get("profit", 0)
+                        color = "green" if profit >= 0 else "red"
+                        st.markdown(f"📊 Profit: :{color}[${profit:+,}]")
+
+                    with col2:
+                        st.markdown("**Actions:**")
+
+                        # Edit session
+                        with st.form(f"edit_session_{selected_id}"):
+                            new_notes = st.text_area(
+                                "Edit Notes",
+                                value=selected_session.get("notes", ""),
+                            )
+                            new_buy_in = st.number_input(
+                                "Buy-in ($)",
+                                value=selected_session.get("buy_in", 0),
+                                min_value=0,
+                            )
+                            new_cash_out = st.number_input(
+                                "Cash-out ($)",
+                                value=selected_session.get("cash_out", 0),
+                                min_value=0,
+                            )
+
+                            if st.form_submit_button("💾 Save Changes"):
+                                new_profit = new_cash_out - new_buy_in
+                                hours = selected_session.get("duration_hours", 1)
+                                new_hourly = new_profit / hours if hours > 0 else 0
+
+                                updates = {
+                                    "notes": new_notes,
+                                    "buy_in": new_buy_in,
+                                    "cash_out": new_cash_out,
+                                    "profit": new_profit,
+                                    "hourly_rate": round(new_hourly, 2),
+                                }
+                                if update_session(selected_id, updates):
+                                    st.success("✅ Session updated!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to update session.")
+
+                        # Delete session
+                        st.markdown("---")
+                        if st.button("🗑️ Delete Session", type="secondary", use_container_width=True):
+                            st.session_state[f"confirm_delete_{selected_id}"] = True
+
+                        if st.session_state.get(f"confirm_delete_{selected_id}"):
+                            st.warning("⚠️ Are you sure? This cannot be undone.")
+                            del_col1, del_col2 = st.columns(2)
+                            with del_col1:
+                                if st.button("✅ Yes, Delete", use_container_width=True):
+                                    if delete_session(selected_id):
+                                        st.success("Session deleted.")
+                                        del st.session_state[f"confirm_delete_{selected_id}"]
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to delete.")
+                            with del_col2:
+                                if st.button("❌ Cancel", use_container_width=True):
+                                    del st.session_state[f"confirm_delete_{selected_id}"]
+                                    st.rerun()
+
 
 def render_log_session() -> None:
     """Render the session logging page with start/end/log modes."""
@@ -258,6 +358,14 @@ def render_hand_logger() -> None:
             # Hand logging form (only if active session)
             if active_session:
                 st.markdown("---")
+
+                # Board cards (optional)
+                with st.expander("🃏 Add Board Cards (Optional)", expanded=False):
+                    board = render_board_cards(
+                        "board",
+                        st.session_state.used_cards,
+                    )
+
                 with st.form("log_hand_form", clear_on_submit=True):
                     pos_col, action_col, result_col = st.columns(3)
 
@@ -268,21 +376,54 @@ def render_hand_logger() -> None:
                         )
 
                     with action_col:
-                        action = st.selectbox(
-                            "Action",
+                        preflop_action = st.selectbox(
+                            "Preflop Action",
                             ["raise", "call", "fold", "check", "all-in"],
                         )
 
                     with result_col:
                         result = st.number_input("Result ($)", value=0, step=10)
 
+                    # Street-by-street actions (optional)
+                    with st.expander("Street Actions (Optional)"):
+                        street_cols = st.columns(3)
+                        with street_cols[0]:
+                            flop_action = st.selectbox(
+                                "Flop",
+                                ["—", "bet", "check", "call", "raise", "fold"],
+                                key="flop_action",
+                            )
+                        with street_cols[1]:
+                            turn_action = st.selectbox(
+                                "Turn",
+                                ["—", "bet", "check", "call", "raise", "fold"],
+                                key="turn_action",
+                            )
+                        with street_cols[2]:
+                            river_action = st.selectbox(
+                                "River",
+                                ["—", "bet", "check", "call", "raise", "fold"],
+                                key="river_action",
+                            )
+
                     notes = st.text_input("Notes", placeholder="Villain tendencies, key decision...")
 
                     if st.form_submit_button("💾 Log Hand", use_container_width=True):
+                        # Build street actions dict
+                        street_actions = {}
+                        if flop_action != "—":
+                            street_actions["flop"] = flop_action
+                        if turn_action != "—":
+                            street_actions["turn"] = turn_action
+                        if river_action != "—":
+                            street_actions["river"] = river_action
+
                         hand_data = {
                             "hole_cards": [card1, card2],
+                            "board": board if any(board.values()) else None,
                             "position": position,
-                            "action": action,
+                            "action": preflop_action,
+                            "street_actions": street_actions if street_actions else None,
                             "result": result,
                             "notes": notes,
                         }
@@ -291,7 +432,7 @@ def render_hand_logger() -> None:
                             # Reset cards
                             st.session_state.used_cards = set()
                             for k in list(st.session_state.keys()):
-                                if k.startswith("card_selector_"):
+                                if k.startswith("card_selector_") or k.startswith("board_"):
                                     del st.session_state[k]
                             st.rerun()
                         else:
@@ -325,17 +466,10 @@ def render_hand_logger() -> None:
 
 
 def render_analytics() -> None:
-    """Render the analytics page placeholder."""
-    st.header("📈 Analytics")
-    st.info("**Analytics** is coming soon in Phase 2 development.")
-
-    st.markdown("""
-    **Planned Features:**
-    - Bankroll growth chart (Plotly)
-    - Position winrate heatmap
-    - Variance tracking & luck indicator
-    - Win/loss streaks
-    """)
+    """Render the analytics page with charts and metrics."""
+    sessions = load_sessions()
+    hands = load_hands()
+    render_analytics_page(sessions, hands)
 
 
 def main() -> None:

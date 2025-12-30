@@ -7,7 +7,15 @@ from typing import Callable, Literal
 
 # Common poker locations and stakes
 DEFAULT_LOCATIONS = ["ClubWPT Gold", "Morongo Casino", "Commerce Casino", "Home Game", "Other"]
-DEFAULT_STAKES = ["1/2", "1/3", "2/5", "5/10", "Other"]
+DEFAULT_STAKES = [
+    ".05/.10",   # Microstakes
+    ".10/.25",
+    ".25/.50",
+    "1/2",       # Standard
+    "1/3",
+    "2/5",       # Max for now
+    "Other",
+]
 
 
 def render_start_session_form(on_submit: Callable[[dict], int | None] | None = None) -> int | None:

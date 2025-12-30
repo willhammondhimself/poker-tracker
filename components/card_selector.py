@@ -345,3 +345,83 @@ def get_card_display(card: tuple[str, str]) -> str:
         f'<span style="color: {color}; font-weight: bold; '
         f'font-size: 1.2em;">{rank}{suit}</span>'
     )
+
+
+def render_board_cards(
+    key: str,
+    used_cards: Optional[set[tuple[str, str]]] = None,
+) -> dict[str, list[tuple[str, str]]]:
+    """Render board card entry (flop, turn, river).
+
+    Uses compact text inputs for rapid entry.
+
+    Args:
+        key: Unique key prefix for this board selector.
+        used_cards: Set of cards already in use (e.g., hole cards).
+
+    Returns:
+        Dictionary with 'flop', 'turn', 'river' keys containing card lists.
+    """
+    if used_cards is None:
+        used_cards = set()
+
+    board = {"flop": [], "turn": [], "river": []}
+
+    st.markdown("**Board Cards** *(optional - type like `As Kh Td` for flop)*")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        flop_input = st.text_input(
+            "Flop (3 cards)",
+            key=f"{key}_flop",
+            placeholder="e.g., As Kh Td",
+        )
+        if flop_input:
+            cards = flop_input.strip().split()
+            for card_str in cards[:3]:
+                parsed = parse_card_input(card_str)
+                if parsed and parsed not in used_cards:
+                    board["flop"].append(parsed)
+
+    with col2:
+        turn_input = st.text_input(
+            "Turn (1 card)",
+            key=f"{key}_turn",
+            placeholder="e.g., 7c",
+        )
+        if turn_input:
+            parsed = parse_card_input(turn_input.strip())
+            if parsed and parsed not in used_cards and parsed not in board["flop"]:
+                board["turn"].append(parsed)
+
+    with col3:
+        river_input = st.text_input(
+            "River (1 card)",
+            key=f"{key}_river",
+            placeholder="e.g., 2d",
+        )
+        if river_input:
+            parsed = parse_card_input(river_input.strip())
+            all_used = used_cards | set(board["flop"]) | set(board["turn"])
+            if parsed and parsed not in all_used:
+                board["river"].append(parsed)
+
+    # Display board preview
+    all_board = board["flop"] + board["turn"] + board["river"]
+    if all_board:
+        display_parts = []
+        for card in all_board:
+            color = SUIT_COLORS[card[1]]
+            display_parts.append(
+                f'<span style="color: {color}; font-weight: bold;">'
+                f'{card[0]}{card[1]}</span>'
+            )
+        board_html = " ".join(display_parts)
+        st.markdown(
+            f'<div style="font-size: 24px; margin: 10px 0;">'
+            f'Board: {board_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    return board
