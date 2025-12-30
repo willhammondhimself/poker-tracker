@@ -234,10 +234,9 @@ def render_card_selector(
 
     # Quick keyboard entry
     quick_input = st.text_input(
-        "Quick entry (e.g., As, Kh, Td)",
+        "⌨️ Quick entry",
         key=f"{key}_quick",
-        placeholder="Type: As, Kh, Td, 9c...",
-        label_visibility="collapsed",
+        placeholder="Type: As, Kh, Td...",
     )
 
     if quick_input:
