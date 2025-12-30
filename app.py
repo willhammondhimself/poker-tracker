@@ -5,7 +5,8 @@ A professional-grade poker analytics platform.
 
 import streamlit as st
 import pandas as pd
-from utils.data_loader import load_sessions
+from utils.data_loader import load_sessions, save_session
+from components import render_session_form, render_card_selector
 
 
 # Page Configuration
@@ -63,7 +64,7 @@ def render_sidebar() -> str:
                 st.rerun()
 
         st.markdown("---")
-        st.caption("v0.1.0 | Phase 1 MVP")
+        st.caption("v0.2.0 | Phase 1 MVP")
 
     return page
 
@@ -117,32 +118,64 @@ def render_dashboard() -> None:
     )
 
 
-def render_placeholder(page_name: str) -> None:
-    """Render a placeholder page for features under development."""
-    st.header(f"🚧 {page_name}")
-    st.info(f"**{page_name}** is coming soon in Phase 1 development.")
+def render_log_session() -> None:
+    """Render the session logging page."""
+    render_session_form(on_submit=save_session)
 
-    if page_name == "Log Session":
-        st.markdown("""
-        **Planned Features:**
-        - Quick session entry form
-        - Auto-calculate profit & hourly rate
-        - Location and stake tracking
-        """)
-    elif page_name == "Hand Logger":
-        st.markdown("""
-        **Planned Features:**
-        - Smart card selector (2-click entry)
-        - Position and action tracking
-        - Auto-grey dead cards
-        """)
-    elif page_name == "Analytics":
-        st.markdown("""
-        **Planned Features:**
-        - Bankroll growth chart
-        - Position winrate heatmap
-        - Variance tracking
-        """)
+
+def render_hand_logger() -> None:
+    """Render the hand logger page with card selector demo."""
+    st.header("🃏 Hand Logger")
+
+    # Initialize used cards in session state
+    if "used_cards" not in st.session_state:
+        st.session_state.used_cards = set()
+
+    st.markdown("**Select your hole cards:**")
+
+    col1, col2, col3 = st.columns([1, 1, 2])
+
+    with col1:
+        st.markdown("**Card 1:**")
+        card1 = render_card_selector("hole_card_1", st.session_state.used_cards)
+        if card1:
+            st.session_state.used_cards.add(card1)
+            st.success(f"Card 1: {card1[0]}{card1[1]}")
+
+    with col2:
+        st.markdown("**Card 2:**")
+        card2 = render_card_selector("hole_card_2", st.session_state.used_cards)
+        if card2:
+            st.session_state.used_cards.add(card2)
+            st.success(f"Card 2: {card2[0]}{card2[1]}")
+
+    with col3:
+        st.markdown("**Hand Preview:**")
+        if card1 and card2:
+            st.markdown(f"### {card1[0]}{card1[1]} {card2[0]}{card2[1]}")
+        else:
+            st.info("Select both cards to see your hand")
+
+        if st.button("🔄 Reset Cards"):
+            st.session_state.used_cards = set()
+            st.rerun()
+
+    st.markdown("---")
+    st.info("🚧 Full hand logging (position, board, actions) coming soon!")
+
+
+def render_analytics() -> None:
+    """Render the analytics page placeholder."""
+    st.header("📈 Analytics")
+    st.info("**Analytics** is coming soon in Phase 2 development.")
+
+    st.markdown("""
+    **Planned Features:**
+    - Bankroll growth chart (Plotly)
+    - Position winrate heatmap
+    - Variance tracking & luck indicator
+    - Win/loss streaks
+    """)
 
 
 def main() -> None:
@@ -154,8 +187,12 @@ def main() -> None:
 
     if page == "Dashboard":
         render_dashboard()
-    else:
-        render_placeholder(page)
+    elif page == "Log Session":
+        render_log_session()
+    elif page == "Hand Logger":
+        render_hand_logger()
+    elif page == "Analytics":
+        render_analytics()
 
 
 if __name__ == "__main__":

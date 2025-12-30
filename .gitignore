@@ -1,6 +1,6 @@
 # AI Configuration (no traces)
-CLAUDE.md
 ROADMAP.md
+claude.rules
 
 # Python
 __pycache__/
