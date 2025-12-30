@@ -2,7 +2,7 @@
 
 import streamlit as st
 from datetime import date, datetime
-from typing import Callable
+from typing import Callable, Literal
 
 
 # Common poker locations and stakes
@@ -10,9 +10,130 @@ DEFAULT_LOCATIONS = ["ClubWPT Gold", "Morongo Casino", "Commerce Casino", "Home 
 DEFAULT_STAKES = ["1/2", "1/3", "2/5", "5/10", "Other"]
 
 
+def render_start_session_form(on_submit: Callable[[dict], int | None] | None = None) -> int | None:
+    """
+    Render form to start a live session.
+
+    Args:
+        on_submit: Callback that saves session and returns session_id.
+
+    Returns:
+        Session ID if started, None otherwise.
+    """
+    st.header("🎮 Start Live Session")
+
+    with st.form("start_session_form", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            location = st.selectbox("Location", options=DEFAULT_LOCATIONS, index=0)
+
+        with col2:
+            stake = st.selectbox("Stake", options=DEFAULT_STAKES, index=0)
+
+        buy_in = st.number_input("Buy-in ($)", min_value=0, max_value=100000, value=200, step=50)
+
+        submitted = st.form_submit_button("🚀 Start Session", use_container_width=True, type="primary")
+
+        if submitted:
+            session_data = {
+                "date": date.today().isoformat(),
+                "location": location,
+                "stake": stake,
+                "buy_in": buy_in,
+                "cash_out": None,  # Not ended yet
+                "duration_hours": None,
+                "status": "active",
+                "start_time": datetime.now().isoformat(),
+                "notes": "",
+            }
+
+            if on_submit:
+                session_id = on_submit(session_data)
+                if session_id:
+                    st.success(f"✅ Session started! ID: {session_id}")
+                    return session_id
+                else:
+                    st.error("❌ Failed to start session.")
+            return None
+
+    return None
+
+
+def render_end_session_form(
+    session: dict,
+    on_submit: Callable[[int, dict], bool] | None = None
+) -> bool:
+    """
+    Render form to end an active session.
+
+    Args:
+        session: The active session dict.
+        on_submit: Callback(session_id, updates) to finalize session.
+
+    Returns:
+        True if session ended successfully.
+    """
+    st.header("🏁 End Session")
+
+    # Show session info
+    st.markdown(f"**Location:** {session.get('location')} | **Stake:** {session.get('stake')}")
+    st.markdown(f"**Buy-in:** ${session.get('buy_in', 0):,}")
+
+    # Calculate duration
+    start_time = datetime.fromisoformat(session.get("start_time", datetime.now().isoformat()))
+    duration_hours = (datetime.now() - start_time).total_seconds() / 3600
+
+    st.markdown(f"**Duration:** {duration_hours:.1f} hours")
+
+    with st.form("end_session_form"):
+        cash_out = st.number_input(
+            "Cash-out ($)",
+            min_value=0,
+            max_value=100000,
+            value=session.get("buy_in", 200),
+            step=50,
+        )
+
+        notes = st.text_area("Session Notes", placeholder="Key hands, reads, mental state...")
+
+        profit = cash_out - session.get("buy_in", 0)
+        hourly = profit / duration_hours if duration_hours > 0 else 0
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+            color = "green" if profit >= 0 else "red"
+            st.markdown(f"**Profit:** :{color}[${profit:+,}]")
+        with col2:
+            color = "green" if hourly >= 0 else "red"
+            st.markdown(f"**Hourly:** :{color}[${hourly:+,.2f}/hr]")
+
+        submitted = st.form_submit_button("🏁 End Session", use_container_width=True, type="primary")
+
+        if submitted and on_submit:
+            updates = {
+                "cash_out": cash_out,
+                "duration_hours": round(duration_hours, 2),
+                "profit": profit,
+                "hourly_rate": round(hourly, 2),
+                "notes": notes.strip(),
+                "status": "completed",
+                "end_time": datetime.now().isoformat(),
+            }
+            success = on_submit(session.get("id"), updates)
+            if success:
+                st.success("✅ Session ended!")
+                return True
+            else:
+                st.error("❌ Failed to end session.")
+
+    return False
+
+
 def render_session_form(on_submit: Callable[[dict], bool] | None = None) -> dict | None:
     """
-    Render the session logging form.
+    Render the session logging form (for logging completed sessions).
 
     Args:
         on_submit: Optional callback function that receives session data.
@@ -21,7 +142,7 @@ def render_session_form(on_submit: Callable[[dict], bool] | None = None) -> dict
     Returns:
         Session data dict if submitted, None otherwise.
     """
-    st.header("📝 Log Session")
+    st.header("📝 Log Completed Session")
 
     # Initialize form state
     if "session_form_submitted" not in st.session_state:

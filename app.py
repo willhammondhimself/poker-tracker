@@ -5,8 +5,20 @@ A professional-grade poker analytics platform.
 
 import streamlit as st
 import pandas as pd
-from utils.data_loader import load_sessions, save_session
-from components import render_session_form, render_card_selector
+from utils.data_loader import (
+    load_sessions,
+    save_session,
+    get_session,
+    update_session,
+    save_hand,
+    load_hands,
+)
+from components import (
+    render_session_form,
+    render_start_session_form,
+    render_end_session_form,
+    render_card_selector,
+)
 
 
 # Page Configuration
@@ -22,6 +34,8 @@ def init_session_state() -> None:
     """Initialize session state variables."""
     if "dark_mode" not in st.session_state:
         st.session_state.dark_mode = True
+    if "active_session_id" not in st.session_state:
+        st.session_state.active_session_id = None
 
 
 def apply_theme() -> None:
@@ -41,6 +55,24 @@ def render_sidebar() -> str:
     """Render sidebar navigation and settings. Returns selected page."""
     with st.sidebar:
         st.title("♠️ Quant Poker Edge")
+
+        # Live session indicator
+        if st.session_state.active_session_id:
+            session = get_session(st.session_state.active_session_id)
+            if session and session.get("status") == "active":
+                st.markdown(
+                    f'<div style="background: linear-gradient(135deg, #27AE60, #2ECC71); '
+                    f'padding: 10px; border-radius: 8px; margin: 10px 0;">'
+                    f'<span style="color: white; font-weight: bold;">🟢 LIVE SESSION</span><br>'
+                    f'<span style="color: #E8F8F5; font-size: 0.9em;">'
+                    f'{session.get("location")} - ${session.get("stake")}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Session was completed or deleted, clear the state
+                st.session_state.active_session_id = None
+
         st.markdown("---")
 
         # Navigation
@@ -64,7 +96,7 @@ def render_sidebar() -> str:
                 st.rerun()
 
         st.markdown("---")
-        st.caption("v0.2.0 | Phase 1 MVP")
+        st.caption("v0.3.0 | Phase 1 MVP")
 
     return page
 
@@ -119,13 +151,69 @@ def render_dashboard() -> None:
 
 
 def render_log_session() -> None:
-    """Render the session logging page."""
-    render_session_form(on_submit=save_session)
+    """Render the session logging page with start/end/log modes."""
+    # Check if there's an active session
+    active_session = None
+    if st.session_state.active_session_id:
+        active_session = get_session(st.session_state.active_session_id)
+        if active_session and active_session.get("status") != "active":
+            active_session = None
+            st.session_state.active_session_id = None
+
+    if active_session:
+        # Show end session form
+        def end_callback(session_id: int, updates: dict) -> bool:
+            success = update_session(session_id, updates)
+            if success:
+                st.session_state.active_session_id = None
+            return success
+
+        ended = render_end_session_form(active_session, on_submit=end_callback)
+        if ended:
+            st.rerun()
+    else:
+        # Show tabs for starting new or logging completed
+        tab1, tab2 = st.tabs(["🎮 Start Live Session", "📝 Log Completed Session"])
+
+        with tab1:
+            def start_callback(session_data: dict) -> int | None:
+                session_id = save_session(session_data)
+                if session_id:
+                    st.session_state.active_session_id = session_id
+                return session_id
+
+            session_id = render_start_session_form(on_submit=start_callback)
+            if session_id:
+                st.rerun()
+
+        with tab2:
+            render_session_form(on_submit=lambda s: save_session(s) is not None)
 
 
 def render_hand_logger() -> None:
-    """Render the hand logger page with card selector demo."""
+    """Render the hand logger page with card selector and session linking."""
     st.header("🃏 Hand Logger")
+
+    # Check for active session
+    active_session = None
+    if st.session_state.active_session_id:
+        active_session = get_session(st.session_state.active_session_id)
+        if active_session and active_session.get("status") != "active":
+            active_session = None
+
+    if not active_session:
+        st.warning("⚠️ **No active session.** Start a session first to log hands.")
+        if st.button("➡️ Go to Log Session", use_container_width=True):
+            st.session_state["nav_override"] = "Log Session"
+            st.rerun()
+        st.markdown("---")
+
+    else:
+        # Show active session info
+        st.success(
+            f"📍 **Active Session:** {active_session.get('location')} - "
+            f"${active_session.get('stake')} | Buy-in: ${active_session.get('buy_in', 0):,}"
+        )
 
     # Initialize used cards in session state
     if "used_cards" not in st.session_state:
@@ -166,6 +254,48 @@ def render_hand_logger() -> None:
                 f'</div>',
                 unsafe_allow_html=True
             )
+
+            # Hand logging form (only if active session)
+            if active_session:
+                st.markdown("---")
+                with st.form("log_hand_form", clear_on_submit=True):
+                    pos_col, action_col, result_col = st.columns(3)
+
+                    with pos_col:
+                        position = st.selectbox(
+                            "Position",
+                            ["BTN", "CO", "HJ", "LJ", "UTG", "SB", "BB"],
+                        )
+
+                    with action_col:
+                        action = st.selectbox(
+                            "Action",
+                            ["raise", "call", "fold", "check", "all-in"],
+                        )
+
+                    with result_col:
+                        result = st.number_input("Result ($)", value=0, step=10)
+
+                    notes = st.text_input("Notes", placeholder="Villain tendencies, key decision...")
+
+                    if st.form_submit_button("💾 Log Hand", use_container_width=True):
+                        hand_data = {
+                            "hole_cards": [card1, card2],
+                            "position": position,
+                            "action": action,
+                            "result": result,
+                            "notes": notes,
+                        }
+                        if save_hand(hand_data, active_session.get("id")):
+                            st.success("✅ Hand logged!")
+                            # Reset cards
+                            st.session_state.used_cards = set()
+                            for k in list(st.session_state.keys()):
+                                if k.startswith("card_selector_"):
+                                    del st.session_state[k]
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to log hand.")
         else:
             st.info("Select both cards to see your hand")
 
@@ -177,8 +307,21 @@ def render_hand_logger() -> None:
                     del st.session_state[k]
             st.rerun()
 
-    st.markdown("---")
-    st.info("🚧 Full hand logging (position, board, actions) coming soon!")
+    # Show logged hands for this session
+    if active_session:
+        hands = load_hands(active_session.get("id"))
+        if hands:
+            st.markdown("---")
+            st.subheader(f"📋 Hands This Session ({len(hands)})")
+            for hand in reversed(hands[-5:]):  # Show last 5
+                cards = hand.get("hole_cards", [])
+                card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}" if len(cards) == 2 else "?"
+                result = hand.get("result", 0)
+                color = "green" if result >= 0 else "red"
+                st.markdown(
+                    f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
+                    f":{color}[${result:+}]"
+                )
 
 
 def render_analytics() -> None:
