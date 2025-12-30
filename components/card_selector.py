@@ -175,6 +175,53 @@ def parse_card_input(text: str) -> Optional[tuple[str, str]]:
     return (rank, suit)
 
 
+def parse_multi_cards(text: str) -> list[tuple[str, str]]:
+    """Parse input that may contain multiple cards.
+
+    Supports formats:
+    - "As Ah" -> [("A", "♠"), ("A", "♥")]
+    - "As, Ah" -> [("A", "♠"), ("A", "♥")]
+    - "AsAh" -> [("A", "♠"), ("A", "♥")]
+    - "Ks Qh Jd" -> [("K", "♠"), ("Q", "♥"), ("J", "♦")]
+
+    Args:
+        text: Input string with one or more cards.
+
+    Returns:
+        List of (rank, suit) tuples for valid cards found.
+    """
+    text = text.strip().upper()
+    if not text:
+        return []
+
+    cards = []
+
+    # Replace commas with spaces, then try to split
+    text = text.replace(",", " ")
+    parts = text.split()
+
+    if len(parts) > 1:
+        # Space-separated format: "As Ah"
+        for part in parts:
+            card = parse_card_input(part)
+            if card and card not in cards:
+                cards.append(card)
+    else:
+        # No spaces - try to parse pairs of characters: "AsAh"
+        text = parts[0] if parts else ""
+        i = 0
+        while i < len(text) - 1:
+            # Try to parse 2 chars as a card
+            card = parse_card_input(text[i:i+2])
+            if card and card not in cards:
+                cards.append(card)
+                i += 2
+            else:
+                i += 1
+
+    return cards
+
+
 def render_card_selector(
     key: str,
     used_cards: Optional[set[tuple[str, str]]] = None,

@@ -26,6 +26,7 @@ from components import (
     render_card_selector,
     render_board_cards,
     render_analytics_page,
+    parse_multi_cards,
 )
 
 
@@ -389,31 +390,58 @@ def render_hand_logger() -> None:
             f"${active_session.get('stake')} | Buy-in: ${active_session.get('buy_in', 0):,}"
         )
 
-    # Initialize used cards in session state
-    if "used_cards" not in st.session_state:
-        st.session_state.used_cards = set()
+    # Quick entry for both cards at once
+    st.markdown("**Quick Entry** *(type both cards: `As Kh` or `As, Kh` or `AsKh`)*")
+    quick_both = st.text_input(
+        "⌨️ Enter both hole cards",
+        key="quick_both_cards",
+        placeholder="As Kh, As,Kh, or AsKh...",
+    )
 
-    st.markdown("**Select your hole cards** *(type shortcuts like `As Kh` or click to select)*")
+    # Parse quick entry for both cards
+    if quick_both:
+        parsed_cards = parse_multi_cards(quick_both)
+        if len(parsed_cards) >= 2:
+            # Set both cards in session state
+            st.session_state["card_selector_hole_card_1"] = {
+                "selected_rank": parsed_cards[0][0],
+                "selected_suit": parsed_cards[0][1],
+                "completed_card": parsed_cards[0],
+            }
+            st.session_state["card_selector_hole_card_2"] = {
+                "selected_rank": parsed_cards[1][0],
+                "selected_suit": parsed_cards[1][1],
+                "completed_card": parsed_cards[1],
+            }
+
+    st.markdown("---")
+    st.markdown("**Or select cards individually:**")
+
+    # Get current card selections (dynamic, not accumulated)
+    card1_state = st.session_state.get("card_selector_hole_card_1", {})
+    card2_state = st.session_state.get("card_selector_hole_card_2", {})
+    card1 = card1_state.get("completed_card")
+    card2 = card2_state.get("completed_card")
 
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col1:
+        # Only mark card2 as used (not card1 itself)
+        used_for_card1 = {card2} if card2 else set()
         card1 = render_card_selector(
             "hole_card_1",
-            st.session_state.used_cards,
+            used_for_card1,
             label="Card 1"
         )
-        if card1:
-            st.session_state.used_cards.add(card1)
 
     with col2:
+        # Only mark card1 as used (not card2 itself)
+        used_for_card2 = {card1} if card1 else set()
         card2 = render_card_selector(
             "hole_card_2",
-            st.session_state.used_cards,
+            used_for_card2,
             label="Card 2"
         )
-        if card2:
-            st.session_state.used_cards.add(card2)
 
     with col3:
         st.markdown("### 🎴 Hand Preview")
@@ -433,11 +461,17 @@ def render_hand_logger() -> None:
             if active_session:
                 st.markdown("---")
 
-                # Board cards (optional)
+                # Board cards (optional) - use hole cards as used
+                hole_cards_used = set()
+                if card1:
+                    hole_cards_used.add(card1)
+                if card2:
+                    hole_cards_used.add(card2)
+
                 with st.expander("🃏 Add Board Cards (Optional)", expanded=False):
                     board = render_board_cards(
                         "board",
-                        st.session_state.used_cards,
+                        hole_cards_used,
                     )
 
                 with st.form("log_hand_form", clear_on_submit=True):
@@ -561,9 +595,8 @@ def render_hand_logger() -> None:
                                 )
                             st.success("✅ Hand logged!")
                             # Reset cards
-                            st.session_state.used_cards = set()
                             for k in list(st.session_state.keys()):
-                                if k.startswith("card_selector_") or k.startswith("board_"):
+                                if k.startswith("card_selector_") or k.startswith("board_") or k == "quick_both_cards":
                                     del st.session_state[k]
                             st.rerun()
                         else:
@@ -572,10 +605,9 @@ def render_hand_logger() -> None:
             st.info("Select both cards to see your hand")
 
         if st.button("🔄 Reset All Cards", use_container_width=True):
-            st.session_state.used_cards = set()
-            # Clear selector states
+            # Clear all card selector states
             for k in list(st.session_state.keys()):
-                if k.startswith("card_selector_"):
+                if k.startswith("card_selector_") or k.startswith("board_") or k == "quick_both_cards":
                     del st.session_state[k]
             st.rerun()
 
