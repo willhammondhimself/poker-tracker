@@ -13,7 +13,12 @@ from utils.data_loader import (
     delete_session,
     save_hand,
     load_hands,
+    load_opponents,
+    get_or_create_opponent,
+    update_opponent_stats,
+    calculate_opponent_stats,
 )
+from utils.analytics_engine import get_edge_summary, analyze_opponent_tendencies
 from components import (
     render_session_form,
     render_start_session_form,
@@ -99,7 +104,7 @@ def render_sidebar() -> str:
                 st.rerun()
 
         st.markdown("---")
-        st.caption("v0.3.0 | Phase 1 MVP")
+        st.caption("v0.4.0 | Phase 2: The Quant Layer")
 
     return page
 
@@ -136,6 +141,75 @@ def render_dashboard() -> None:
         st.metric("Hours Played", f"{total_hours:.1f}")
     with col4:
         st.metric("Avg $/hr", f"${avg_hourly:.2f}")
+
+    st.markdown("---")
+
+    # My Edge Card
+    hands = load_hands()
+    if hands:
+        edge_summary = get_edge_summary(hands, sessions)
+
+        st.subheader("🎯 My Edge")
+
+        edge_col1, edge_col2 = st.columns(2)
+
+        with edge_col1:
+            st.markdown("**💪 Top Exploits** *(Your Strengths)*")
+            if edge_summary["exploits"]:
+                for exploit in edge_summary["exploits"][:3]:
+                    st.markdown(
+                        f'<div style="background: linear-gradient(135deg, #27AE60, #2ECC71); '
+                        f'padding: 10px; border-radius: 8px; margin: 5px 0;">'
+                        f'<span style="color: white; font-weight: bold;">'
+                        f'+{exploit["bb_100"]:.1f} BB/100</span> '
+                        f'<span style="color: #E8F8F5;">{exploit["description"]}</span>'
+                        f'<br><span style="color: #A9DFBF; font-size: 0.8em;">'
+                        f'${exploit["total_profit"]:+,.0f} over {exploit["hands"]} hands</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("Log more hands to identify your strengths")
+
+        with edge_col2:
+            st.markdown("**🩸 Top Leaks** *(Areas to Improve)*")
+            if edge_summary["leaks"]:
+                for leak in edge_summary["leaks"][:3]:
+                    st.markdown(
+                        f'<div style="background: linear-gradient(135deg, #E74C3C, #C0392B); '
+                        f'padding: 10px; border-radius: 8px; margin: 5px 0;">'
+                        f'<span style="color: white; font-weight: bold;">'
+                        f'{leak["bb_100"]:.1f} BB/100</span> '
+                        f'<span style="color: #FADBD8;">{leak["description"]}</span>'
+                        f'<br><span style="color: #F5B7B1; font-size: 0.8em;">'
+                        f'${leak["total_loss"]:+,.0f} over {leak["hands"]} hands</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("Log more hands to identify leaks")
+
+        # Recommendations
+        if edge_summary["recommendations"]:
+            with st.expander("📋 Recommendations"):
+                for rec in edge_summary["recommendations"]:
+                    priority_color = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(rec["priority"], "⚪")
+                    st.markdown(f"{priority_color} **{rec['leak']}** ({rec['bb_100']:.1f} BB/100)")
+                    st.markdown(f"> {rec['recommendation']}")
+                    st.markdown("---")
+
+        # Overall BB/100
+        overall_bb = edge_summary["overall_bb_100"]
+        bb_color = "#27AE60" if overall_bb >= 0 else "#E74C3C"
+        st.markdown(
+            f'<div style="text-align: center; margin-top: 15px;">'
+            f'<span style="font-size: 1.2em; color: #888;">Overall: </span>'
+            f'<span style="font-size: 1.5em; font-weight: bold; color: {bb_color};">'
+            f'{overall_bb:+.1f} BB/100</span>'
+            f'<span style="color: #888;"> ({edge_summary["total_hands"]} hands logged)</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
 
@@ -384,6 +458,36 @@ def render_hand_logger() -> None:
                     with result_col:
                         result = st.number_input("Result ($)", value=0, step=10)
 
+                    # Opponent tracking
+                    opp_col1, opp_col2 = st.columns(2)
+                    with opp_col1:
+                        # Get existing opponents for autocomplete
+                        existing_opponents = load_opponents()
+                        opponent_names = ["(None)"] + [o.get("name", "") for o in existing_opponents]
+                        opponent_select = st.selectbox(
+                            "Villain",
+                            opponent_names,
+                            help="Select existing or type new name below",
+                        )
+                    with opp_col2:
+                        new_opponent = st.text_input(
+                            "New Villain Name",
+                            placeholder="e.g., Seat 3, TAG_Mike, Fish_lady",
+                            help="Add a new opponent if not in list",
+                        )
+
+                    # Opponent action tracking
+                    with st.expander("Villain Actions (for HUD stats)"):
+                        opp_action_cols = st.columns(4)
+                        with opp_action_cols[0]:
+                            villain_vpip = st.checkbox("VPIP", help="Villain put money in pot voluntarily")
+                        with opp_action_cols[1]:
+                            villain_pfr = st.checkbox("PFR", help="Villain raised preflop")
+                        with opp_action_cols[2]:
+                            villain_3bet = st.checkbox("3-Bet", help="Villain 3-bet")
+                        with opp_action_cols[3]:
+                            villain_cbet = st.checkbox("C-Bet", help="Villain continuation bet")
+
                     # Street-by-street actions (optional)
                     with st.expander("Street Actions (Optional)"):
                         street_cols = st.columns(3)
@@ -418,6 +522,20 @@ def render_hand_logger() -> None:
                         if river_action != "—":
                             street_actions["river"] = river_action
 
+                        # Handle opponent
+                        opponent_id = None
+                        opponent_name = None
+                        if new_opponent.strip():
+                            # Create or get new opponent
+                            opp = get_or_create_opponent(new_opponent.strip())
+                            opponent_id = opp.get("id")
+                            opponent_name = opp.get("name")
+                        elif opponent_select != "(None)":
+                            # Use selected opponent
+                            opp = get_or_create_opponent(opponent_select)
+                            opponent_id = opp.get("id")
+                            opponent_name = opp.get("name")
+
                         hand_data = {
                             "hole_cards": [card1, card2],
                             "board": board if any(board.values()) else None,
@@ -426,8 +544,21 @@ def render_hand_logger() -> None:
                             "street_actions": street_actions if street_actions else None,
                             "result": result,
                             "notes": notes,
+                            "opponent_id": opponent_id,
+                            "opponent_name": opponent_name,
                         }
+
                         if save_hand(hand_data, active_session.get("id")):
+                            # Update opponent stats if we have an opponent
+                            if opponent_id:
+                                update_opponent_stats(
+                                    opponent_id,
+                                    hand_action=preflop_action,
+                                    is_vpip=villain_vpip,
+                                    is_pfr=villain_pfr,
+                                    is_3bet=villain_3bet,
+                                    is_cbet=villain_cbet,
+                                )
                             st.success("✅ Hand logged!")
                             # Reset cards
                             st.session_state.used_cards = set()
@@ -459,9 +590,11 @@ def render_hand_logger() -> None:
                 card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}" if len(cards) == 2 else "?"
                 result = hand.get("result", 0)
                 color = "green" if result >= 0 else "red"
+                villain = hand.get("opponent_name", "")
+                villain_str = f" vs **{villain}**" if villain else ""
                 st.markdown(
                     f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
-                    f":{color}[${result:+}]"
+                    f":{color}[${result:+}]{villain_str}"
                 )
 
 
