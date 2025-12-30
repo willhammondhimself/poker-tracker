@@ -36,11 +36,10 @@ def _apply_card_selector_styles() -> None:
     st.markdown(
         """
         <style>
-        /* Card selector container */
+        /* Card selector container - transparent for dark mode compatibility */
         .card-selector-container {
-            background: #F8F9FA;
             border-radius: 8px;
-            padding: 20px;
+            padding: 10px 0;
             margin: 10px 0;
         }
 
