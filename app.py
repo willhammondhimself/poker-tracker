@@ -15,10 +15,17 @@ from utils.data_loader import (
     load_hands,
     load_opponents,
     get_or_create_opponent,
+    get_opponent,
     update_opponent_stats,
     calculate_opponent_stats,
 )
 from utils.analytics_engine import get_edge_summary, analyze_opponent_tendencies
+from utils.ai_coach import (
+    analyze_hand,
+    render_api_key_input,
+    render_analysis_result,
+    get_api_key,
+)
 from components import (
     render_session_form,
     render_start_session_form,
@@ -105,7 +112,11 @@ def render_sidebar() -> str:
                 st.rerun()
 
         st.markdown("---")
-        st.caption("v0.4.0 | Phase 2: The Quant Layer")
+
+        # AI Coach Settings
+        render_api_key_input()
+
+        st.caption("v0.5.0 | Phase 3: AI Coach")
 
     return page
 
@@ -594,6 +605,20 @@ def render_hand_logger() -> None:
                                     is_cbet=villain_cbet,
                                 )
                             st.success("✅ Hand logged!")
+
+                            # Store last logged hand for AI Coach
+                            st.session_state["last_logged_hand"] = hand_data
+                            st.session_state["last_logged_session"] = active_session
+
+                            # Ask Coach button (Location A: after logging)
+                            if get_api_key():
+                                if st.button("🤖 Ask Coach", key="ask_coach_new", use_container_width=True):
+                                    st.session_state["analyze_hand"] = hand_data
+                                    st.session_state["analyze_session"] = active_session
+                                    st.session_state["analyze_opponent_id"] = opponent_id
+                            else:
+                                st.info("💡 Add your Perplexity API key in Settings to enable AI Coach")
+
                             # Reset cards
                             for k in list(st.session_state.keys()):
                                 if k.startswith("card_selector_") or k.startswith("board_") or k == "quick_both_cards":
@@ -611,23 +636,63 @@ def render_hand_logger() -> None:
                     del st.session_state[k]
             st.rerun()
 
+    # Show AI Coach Analysis if requested
+    if st.session_state.get("analyze_hand"):
+        st.markdown("---")
+        hand_to_analyze = st.session_state.get("analyze_hand")
+        session_for_analysis = st.session_state.get("analyze_session", active_session or {})
+        opponent_id = st.session_state.get("analyze_opponent_id")
+
+        # Get opponent data if available
+        opponent_data = None
+        if opponent_id:
+            opponent_data = get_opponent(opponent_id)
+
+        with st.spinner("🤖 Analyzing hand..."):
+            result = analyze_hand(hand_to_analyze, session_for_analysis, opponent_data)
+            render_analysis_result(result)
+
+        if st.button("✖️ Close Analysis", use_container_width=True):
+            del st.session_state["analyze_hand"]
+            if "analyze_session" in st.session_state:
+                del st.session_state["analyze_session"]
+            if "analyze_opponent_id" in st.session_state:
+                del st.session_state["analyze_opponent_id"]
+            st.rerun()
+
     # Show logged hands for this session
     if active_session:
         hands = load_hands(active_session.get("id"))
         if hands:
             st.markdown("---")
             st.subheader(f"📋 Hands This Session ({len(hands)})")
-            for hand in reversed(hands[-5:]):  # Show last 5
+
+            has_api_key = bool(get_api_key())
+
+            for idx, hand in enumerate(reversed(hands[-5:])):  # Show last 5
                 cards = hand.get("hole_cards", [])
                 card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}" if len(cards) == 2 else "?"
                 result = hand.get("result", 0)
                 color = "green" if result >= 0 else "red"
                 villain = hand.get("opponent_name", "")
                 villain_str = f" vs **{villain}**" if villain else ""
-                st.markdown(
-                    f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
-                    f":{color}[${result:+}]{villain_str}"
-                )
+
+                # Create columns for hand info and coach button
+                hand_col, coach_col = st.columns([5, 1])
+
+                with hand_col:
+                    st.markdown(
+                        f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
+                        f":{color}[${result:+}]{villain_str}"
+                    )
+
+                with coach_col:
+                    if has_api_key:
+                        if st.button("🤖", key=f"coach_hand_{idx}", help="Ask AI Coach"):
+                            st.session_state["analyze_hand"] = hand
+                            st.session_state["analyze_session"] = active_session
+                            st.session_state["analyze_opponent_id"] = hand.get("opponent_id")
+                            st.rerun()
 
 
 def render_analytics() -> None:
