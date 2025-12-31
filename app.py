@@ -26,6 +26,7 @@ from utils.ai_coach import (
     render_analysis_result,
     get_api_key,
 )
+from utils.ignition_parser import parse_ignition_file, get_import_summary
 from components import (
     render_session_form,
     render_start_session_form,
@@ -98,7 +99,7 @@ def render_sidebar() -> str:
         # Navigation
         page = st.radio(
             "Navigation",
-            options=["Dashboard", "Log Session", "Hand Logger", "Analytics"],
+            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "Analytics"],
             label_visibility="collapsed",
         )
 
@@ -745,6 +746,177 @@ def render_hand_logger() -> None:
                             st.rerun()
 
 
+def render_data_import() -> None:
+    """Render the data import page for Ignition hand histories."""
+    st.header("📥 Data Import")
+    st.markdown("Import hand histories from **Ignition Casino** (Zone Poker)")
+
+    st.markdown("""
+    ### How to Export from Ignition:
+    1. Go to **Poker Lobby** → **Account** → **Hand History**
+    2. Select your date range and download the `.txt` file
+    3. Upload it below
+    """)
+
+    st.markdown("---")
+
+    # File uploader
+    uploaded_file = st.file_uploader(
+        "Upload Ignition Hand History (.txt)",
+        type=['txt'],
+        help="Upload your Ignition/Bovada hand history text file",
+    )
+
+    if uploaded_file is not None:
+        # Read file content
+        file_content = uploaded_file.read().decode('utf-8')
+
+        with st.spinner("Parsing hand history..."):
+            # Parse the file
+            parsed_hands = parse_ignition_file(file_content)
+
+        if not parsed_hands:
+            st.error("❌ No hands could be parsed from this file. Make sure it's a valid Ignition hand history.")
+            return
+
+        # Show summary
+        summary = get_import_summary(parsed_hands)
+
+        st.success(f"✅ Found **{summary['total_hands']}** hands to import!")
+
+        # Summary stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            profit_color = "green" if summary['total_profit'] >= 0 else "red"
+            st.metric("Total Profit", f"${summary['total_profit']:+.2f}")
+        with col2:
+            st.metric("Winning Hands", summary['winning_hands'])
+        with col3:
+            st.metric("Losing Hands", summary['losing_hands'])
+        with col4:
+            st.metric("Win Rate", f"{summary['win_rate']}%")
+
+        st.markdown(f"**Stakes:** {', '.join(summary['stakes'])}")
+        if summary['date_range']:
+            st.markdown(f"**Date Range:** {summary['date_range']}")
+
+        st.markdown("---")
+
+        # Preview some hands
+        with st.expander("Preview Hands", expanded=False):
+            for i, hand in enumerate(parsed_hands[:5]):
+                cards = hand.get('hole_cards', [])
+                if len(cards) == 2:
+                    card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}"
+                else:
+                    card_str = "?"
+                result = hand.get('result', 0)
+                color = "green" if result >= 0 else "red"
+                st.markdown(
+                    f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
+                    f":{color}[${result:+.2f}]"
+                )
+            if len(parsed_hands) > 5:
+                st.caption(f"...and {len(parsed_hands) - 5} more hands")
+
+        st.markdown("---")
+
+        # Import options
+        st.markdown("### Import Options")
+
+        # Create or select session for imported hands
+        create_session = st.checkbox(
+            "Create new session for imported hands",
+            value=True,
+            help="Group imported hands under a new session entry",
+        )
+
+        if create_session:
+            session_col1, session_col2 = st.columns(2)
+            with session_col1:
+                import_location = st.text_input(
+                    "Location",
+                    value="Ignition Zone Poker",
+                )
+            with session_col2:
+                import_stake = st.selectbox(
+                    "Stake",
+                    options=summary['stakes'] if summary['stakes'] else ['0.05/0.10'],
+                )
+
+        # Import button
+        if st.button("📥 Import Hands", type="primary", use_container_width=True):
+            with st.spinner("Importing hands..."):
+                session_id = None
+
+                if create_session:
+                    # Create a new session for these hands
+                    from datetime import datetime
+
+                    # Get date from first hand or use today
+                    first_date = parsed_hands[0].get('date', datetime.now().isoformat())
+                    if isinstance(first_date, str):
+                        session_date = first_date[:10]
+                    else:
+                        session_date = first_date.strftime('%Y-%m-%d')
+
+                    # Calculate session stats
+                    total_profit = sum(h.get('result', 0) for h in parsed_hands)
+                    duration = max(1, len(parsed_hands) / 60)  # Estimate ~60 hands/hour
+
+                    session_data = {
+                        'date': session_date,
+                        'location': import_location,
+                        'stake': import_stake,
+                        'buy_in': 0,  # Unknown for imports
+                        'cash_out': 0,
+                        'profit': round(total_profit, 2),
+                        'duration_hours': round(duration, 1),
+                        'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,
+                        'notes': f'Imported {len(parsed_hands)} hands from Ignition',
+                        'status': 'completed',
+                        'source': 'ignition_import',
+                    }
+
+                    session_id = save_session(session_data)
+
+                # Save all hands
+                success_count = 0
+                for hand in parsed_hands:
+                    if save_hand(hand, session_id):
+                        success_count += 1
+
+            if success_count > 0:
+                st.success(f"✅ Successfully imported **{success_count}** hands!")
+                st.balloons()
+
+                # Show next steps
+                st.markdown("### Next Steps")
+                st.markdown("""
+                - Go to **Dashboard** to see your updated stats
+                - Check **Analytics** for your LeakFinder analysis
+                - Use **AI Coach** to review specific hands
+                """)
+            else:
+                st.error("❌ Failed to import hands. Please try again.")
+
+    # Show existing import history
+    st.markdown("---")
+    st.subheader("📊 Import History")
+
+    sessions = load_sessions()
+    imported_sessions = [s for s in sessions if s.get('source') == 'ignition_import']
+
+    if imported_sessions:
+        for session in sorted(imported_sessions, key=lambda x: x.get('date', ''), reverse=True)[:5]:
+            st.markdown(
+                f"**{session.get('date')}** - {session.get('location')} | "
+                f"${session.get('profit', 0):+.2f} | {session.get('notes', '')}"
+            )
+    else:
+        st.info("No imported sessions yet. Upload a hand history file above to get started.")
+
+
 def render_analytics() -> None:
     """Render the analytics page with charts and metrics."""
     sessions = load_sessions()
@@ -767,6 +939,8 @@ def main() -> None:
         render_hand_logger()
     elif page == "Analytics":
         render_analytics()
+    elif page == "Data Import":
+        render_data_import()
 
 
 if __name__ == "__main__":
