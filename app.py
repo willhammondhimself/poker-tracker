@@ -52,6 +52,10 @@ def init_session_state() -> None:
         st.session_state.dark_mode = True
     if "active_session_id" not in st.session_state:
         st.session_state.active_session_id = None
+    if "bankroll" not in st.session_state:
+        st.session_state.bankroll = 350  # Current bankroll
+    if "bankroll_target" not in st.session_state:
+        st.session_state.bankroll_target = 500  # Target for next stake
 
 
 def apply_theme() -> None:
@@ -100,6 +104,23 @@ def render_sidebar() -> str:
 
         st.markdown("---")
 
+        # Bankroll Status Progress Bar
+        bankroll = st.session_state.bankroll
+        target = st.session_state.bankroll_target
+        progress = min(bankroll / target, 1.0) if target > 0 else 0
+
+        st.markdown("**💰 Bankroll Status**")
+        st.progress(progress)
+        progress_color = "#27AE60" if progress >= 0.8 else "#F39C12" if progress >= 0.5 else "#E74C3C"
+        st.markdown(
+            f'<div style="text-align: center; margin-top: -10px;">'
+            f'<span style="color: {progress_color}; font-weight: bold;">${bankroll:,.0f}</span>'
+            f' / ${target:,.0f} to Next Stake</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("---")
+
         # Settings
         with st.expander("⚙️ Settings"):
             dark_mode = st.toggle(
@@ -111,12 +132,32 @@ def render_sidebar() -> str:
                 st.session_state.dark_mode = dark_mode
                 st.rerun()
 
+            st.markdown("---")
+            st.markdown("**Bankroll Settings**")
+            new_bankroll = st.number_input(
+                "Current Bankroll ($)",
+                value=st.session_state.bankroll,
+                min_value=0,
+                step=50,
+                key="bankroll_input",
+            )
+            new_target = st.number_input(
+                "Target for Next Stake ($)",
+                value=st.session_state.bankroll_target,
+                min_value=100,
+                step=100,
+                key="target_input",
+            )
+            if new_bankroll != st.session_state.bankroll or new_target != st.session_state.bankroll_target:
+                st.session_state.bankroll = new_bankroll
+                st.session_state.bankroll_target = new_target
+
         st.markdown("---")
 
         # AI Coach Settings
         render_api_key_input()
 
-        st.caption("v0.5.0 | Phase 3: AI Coach")
+        st.caption("v0.6.0 | Phase 4: Polish")
 
     return page
 
@@ -380,33 +421,13 @@ def render_hand_logger() -> None:
     """Render the hand logger page with card selector and session linking."""
     st.header("🃏 Hand Logger")
 
-    # Check for active session
-    active_session = None
-    if st.session_state.active_session_id:
-        active_session = get_session(st.session_state.active_session_id)
-        if active_session and active_session.get("status") != "active":
-            active_session = None
-
-    if not active_session:
-        st.warning("⚠️ **No active session.** Start a session first to log hands.")
-        if st.button("➡️ Go to Log Session", use_container_width=True):
-            st.session_state["nav_override"] = "Log Session"
-            st.rerun()
-        st.markdown("---")
-
-    else:
-        # Show active session info
-        st.success(
-            f"📍 **Active Session:** {active_session.get('location')} - "
-            f"${active_session.get('stake')} | Buy-in: ${active_session.get('buy_in', 0):,}"
-        )
-
-    # Quick entry for both cards at once
-    st.markdown("**Quick Entry** *(type both cards: `As Kh` or `As, Kh` or `AsKh`)*")
+    # Quick entry at TOP for mobile-first design
+    st.markdown("**⌨️ Quick Entry** *(type: `As Kh` or `AsKh`)*")
     quick_both = st.text_input(
-        "⌨️ Enter both hole cards",
+        "Enter hole cards",
         key="quick_both_cards",
         placeholder="As Kh, As,Kh, or AsKh...",
+        label_visibility="collapsed",
     )
 
     # Parse quick entry for both cards
@@ -426,6 +447,27 @@ def render_hand_logger() -> None:
             }
 
     st.markdown("---")
+
+    # Check for active session
+    active_session = None
+    if st.session_state.active_session_id:
+        active_session = get_session(st.session_state.active_session_id)
+        if active_session and active_session.get("status") != "active":
+            active_session = None
+
+    if not active_session:
+        st.warning("⚠️ **No active session.** Start a session first to log hands.")
+        if st.button("➡️ Go to Log Session", use_container_width=True):
+            st.session_state["nav_override"] = "Log Session"
+            st.rerun()
+        st.markdown("---")
+
+    else:
+        # Show active session info (compact)
+        st.success(
+            f"📍 {active_session.get('location')} - ${active_session.get('stake')}"
+        )
+
     st.markdown("**Or select cards individually:**")
 
     # Get current card selections (dynamic, not accumulated)
@@ -610,14 +652,22 @@ def render_hand_logger() -> None:
                             st.session_state["last_logged_hand"] = hand_data
                             st.session_state["last_logged_session"] = active_session
 
-                            # Ask Coach button (Location A: after logging)
-                            if get_api_key():
-                                if st.button("🤖 Ask Coach", key="ask_coach_new", use_container_width=True):
-                                    st.session_state["analyze_hand"] = hand_data
-                                    st.session_state["analyze_session"] = active_session
-                                    st.session_state["analyze_opponent_id"] = opponent_id
-                            else:
-                                st.info("💡 Add your Perplexity API key in Settings to enable AI Coach")
+                            # Ask Coach + GTO Wizard buttons (Location A: after logging)
+                            coach_col, gto_col = st.columns(2)
+                            with coach_col:
+                                if get_api_key():
+                                    if st.button("🤖 Ask Coach", key="ask_coach_new", use_container_width=True):
+                                        st.session_state["analyze_hand"] = hand_data
+                                        st.session_state["analyze_session"] = active_session
+                                        st.session_state["analyze_opponent_id"] = opponent_id
+                                else:
+                                    st.info("💡 Add API key for AI Coach")
+                            with gto_col:
+                                # Build GTO Wizard search URL
+                                cards_str = f"{card1[0]}{card1[1]}{card2[0]}{card2[1]}" if card1 and card2 else ""
+                                gto_query = f"{position} {cards_str} {preflop_action}"
+                                gto_url = f"https://gtowizard.com/solutions?q={gto_query.replace(' ', '%20')}"
+                                st.link_button("🔗 GTO Wizard", gto_url, use_container_width=True)
 
                             # Reset cards
                             for k in list(st.session_state.keys()):
