@@ -5,6 +5,8 @@ A professional-grade poker analytics platform.
 
 import streamlit as st
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 from utils.data_loader import (
     load_sessions,
     save_session,
@@ -16,8 +18,11 @@ from utils.data_loader import (
     load_opponents,
     get_or_create_opponent,
     get_opponent,
+    get_opponent_with_tags,
     update_opponent_stats,
     calculate_opponent_stats,
+    load_settings,
+    update_bankroll,
 )
 from utils.analytics_engine import get_edge_summary, analyze_opponent_tendencies
 from utils.ai_coach import (
@@ -29,6 +34,18 @@ from utils.ai_coach import (
 from utils.ignition_parser import parse_ignition_file, get_import_summary
 from utils.range_analyzer import analyze_ranges, get_range_grid_data, get_position_summary, RANKS
 from utils.poker_math import calculate_winrate_ci, get_sample_size_message
+from utils.monte_carlo import (
+    simulate_bankroll,
+    calculate_kelly_criterion,
+    estimate_time_to_target,
+    get_sample_trajectories,
+    get_percentile_trajectories,
+)
+from utils.tilt_detector import (
+    detect_tilt,
+    get_tilt_color,
+    get_tilt_emoji,
+)
 from components import (
     render_session_form,
     render_start_session_form,
@@ -38,6 +55,7 @@ from components import (
     render_analytics_page,
     parse_multi_cards,
     render_hand_visualizer,
+    render_hand_replayer,
 )
 
 
@@ -56,10 +74,11 @@ def init_session_state() -> None:
         st.session_state.dark_mode = True
     if "active_session_id" not in st.session_state:
         st.session_state.active_session_id = None
-    if "bankroll" not in st.session_state:
-        st.session_state.bankroll = 350  # Current bankroll
-    if "bankroll_target" not in st.session_state:
-        st.session_state.bankroll_target = 500  # Target for next stake
+    if "bankroll" not in st.session_state or "bankroll_target" not in st.session_state:
+        # Load from persistent settings file
+        settings = load_settings()
+        st.session_state.bankroll = settings.get("bankroll", 350.00)
+        st.session_state.bankroll_target = settings.get("bankroll_target", 500.00)
 
 
 def apply_theme() -> None:
@@ -102,7 +121,7 @@ def render_sidebar() -> str:
         # Navigation
         page = st.radio(
             "Navigation",
-            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "My Ranges", "Analytics"],
+            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "My Ranges", "Analytics", "Simulator"],
             label_visibility="collapsed",
         )
 
@@ -118,10 +137,17 @@ def render_sidebar() -> str:
         progress_color = "#27AE60" if progress >= 0.8 else "#F39C12" if progress >= 0.5 else "#E74C3C"
         st.markdown(
             f'<div style="text-align: center; margin-top: -10px;">'
-            f'<span style="color: {progress_color}; font-weight: bold;">${bankroll:,.0f}</span>'
-            f' / ${target:,.0f} to Next Stake</div>',
+            f'<span style="color: {progress_color}; font-weight: bold;">${bankroll:,.2f}</span>'
+            f' / ${target:,.2f} to Next Stake</div>',
             unsafe_allow_html=True,
         )
+
+        st.markdown("---")
+
+        # Quick EV Calculator
+        from components.ev_calculator import render_mini_ev_calculator
+        with st.expander("💰 Quick EV Check"):
+            render_mini_ev_calculator()
 
         st.markdown("---")
 
@@ -140,21 +166,26 @@ def render_sidebar() -> str:
             st.markdown("**Bankroll Settings**")
             new_bankroll = st.number_input(
                 "Current Bankroll ($)",
-                value=st.session_state.bankroll,
-                min_value=0,
-                step=50,
+                value=float(st.session_state.bankroll),
+                min_value=0.00,
+                step=0.01,
+                format="%.2f",
                 key="bankroll_input",
             )
             new_target = st.number_input(
                 "Target for Next Stake ($)",
-                value=st.session_state.bankroll_target,
-                min_value=100,
-                step=100,
+                value=float(st.session_state.bankroll_target),
+                min_value=0.01,
+                step=0.01,
+                format="%.2f",
                 key="target_input",
             )
             if new_bankroll != st.session_state.bankroll or new_target != st.session_state.bankroll_target:
                 st.session_state.bankroll = new_bankroll
                 st.session_state.bankroll_target = new_target
+                # Save to persistent file and refresh to sync both displays
+                update_bankroll(new_bankroll, new_target)
+                st.rerun()
 
         st.markdown("---")
 
@@ -199,10 +230,29 @@ def render_dashboard() -> None:
     with col4:
         st.metric("Avg $/hr", f"${avg_hourly:.2f}")
 
+    # Load hands once for both PDF and My Edge Card
+    hands = load_hands()
+
+    # PDF Report Download
+    from utils.report_generator import generate_tearsheet
+    from datetime import datetime as dt
+
+    with st.expander("📄 Generate Performance Report"):
+        st.markdown("Export a professional PDF tearsheet with your stats and session history.")
+        if st.button("Generate PDF", type="primary", use_container_width=True):
+            with st.spinner("Generating report..."):
+                pdf_bytes = generate_tearsheet(sessions, hands)
+                st.download_button(
+                    label="Download PDF Tearsheet",
+                    data=pdf_bytes,
+                    file_name=f"poker_tearsheet_{dt.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+
     st.markdown("---")
 
     # My Edge Card
-    hands = load_hands()
     if hands:
         edge_summary = get_edge_summary(hands, sessions)
 
@@ -300,6 +350,66 @@ def render_dashboard() -> None:
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+        # Tilt Detection for recent session
+        if sessions and hands:
+            # Get most recent session with hands
+            recent_session = max(sessions, key=lambda s: s.get('date', ''))
+            recent_session_id = recent_session.get('id')
+            recent_hands = [h for h in hands if h.get('session_id') == recent_session_id]
+
+            if len(recent_hands) >= 20:
+                tilt_analysis = detect_tilt(recent_hands)
+                tilt_color = get_tilt_color(tilt_analysis.tilt_score)
+                tilt_emoji = get_tilt_emoji(tilt_analysis.tilt_level)
+
+                st.markdown("---")
+                st.markdown("##### 🧠 Emotional Control (Last Session)")
+
+                tilt_col1, tilt_col2 = st.columns([1, 2])
+
+                with tilt_col1:
+                    st.markdown(
+                        f'<div style="background: linear-gradient(135deg, {tilt_color}, {tilt_color}dd); '
+                        f'padding: 20px; border-radius: 10px; text-align: center;">'
+                        f'<div style="font-size: 2em;">{tilt_emoji}</div>'
+                        f'<div style="color: white; font-size: 1.8em; font-weight: bold;">'
+                        f'{tilt_analysis.tilt_score:.1f}/10</div>'
+                        f'<div style="color: #ffffffcc; font-size: 0.9em;">Tilt Score</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                with tilt_col2:
+                    # Show warning and indicators
+                    if tilt_analysis.tilt_level == 'severe':
+                        st.error(tilt_analysis.warning_message)
+                    elif tilt_analysis.tilt_level == 'moderate':
+                        st.warning(tilt_analysis.warning_message)
+                    elif tilt_analysis.tilt_level == 'mild':
+                        st.info(tilt_analysis.warning_message)
+                    else:
+                        st.success(tilt_analysis.warning_message)
+
+                    # Show key indicators
+                    indicators = []
+                    if tilt_analysis.downswing_detected:
+                        indicators.append("📉 Downswing detected")
+                    if tilt_analysis.vpip_increase > 5:
+                        indicators.append(f"📈 VPIP +{tilt_analysis.vpip_increase:.0f}% after losses")
+                    if tilt_analysis.aggression_spike:
+                        indicators.append("⚡ Aggression spike")
+                    if tilt_analysis.loss_chasing:
+                        indicators.append("🎰 Loss chasing behavior")
+
+                    if indicators:
+                        st.markdown("**Indicators:** " + " | ".join(indicators))
+
+                # Recommendations in expander
+                if tilt_analysis.tilt_level != 'none' and tilt_analysis.recommendations:
+                    with st.expander("💡 Recommendations"):
+                        for rec in tilt_analysis.recommendations:
+                            st.markdown(f"- {rec}")
 
     st.markdown("---")
 
@@ -730,10 +840,23 @@ def render_hand_logger() -> None:
         session_for_analysis = st.session_state.get("analyze_session", active_session or {})
         opponent_id = st.session_state.get("analyze_opponent_id")
 
-        # Get opponent data if available
+        # Get opponent data with auto-tags if available
         opponent_data = None
         if opponent_id:
-            opponent_data = get_opponent(opponent_id)
+            opponent_data = get_opponent_with_tags(opponent_id)
+            # Show opponent tags if available
+            if opponent_data and opponent_data.get('tags_html'):
+                st.markdown(
+                    f"**Opponent Profile:** {opponent_data.get('name', 'Unknown')} "
+                    f"{opponent_data.get('tags_html', '')}",
+                    unsafe_allow_html=True,
+                )
+                # Show exploitation tips
+                tips = opponent_data.get('exploitation_tips', [])
+                if tips:
+                    with st.expander("🎯 Exploitation Tips"):
+                        for tip in tips:
+                            st.markdown(f"- {tip}")
 
         with st.spinner("🤖 Analyzing hand..."):
             result = analyze_hand(hand_to_analyze, session_for_analysis, opponent_data)
@@ -767,6 +890,15 @@ def render_hand_logger() -> None:
 
             has_api_key = bool(get_api_key())
 
+            # Check if replaying a hand
+            if "replay_hand" in st.session_state and st.session_state["replay_hand"]:
+                st.markdown("##### 🎬 Hand Replayer")
+                render_hand_replayer(st.session_state["replay_hand"])
+                if st.button("✖️ Close Replayer", use_container_width=True):
+                    del st.session_state["replay_hand"]
+                    st.rerun()
+                st.markdown("---")
+
             for idx, hand in enumerate(reversed(hands[-5:])):  # Show last 5
                 cards = hand.get("hole_cards", [])
                 card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}" if len(cards) == 2 else "?"
@@ -775,14 +907,19 @@ def render_hand_logger() -> None:
                 villain = hand.get("opponent_name", "")
                 villain_str = f" vs **{villain}**" if villain else ""
 
-                # Create columns for hand info and coach button
-                hand_col, coach_col = st.columns([5, 1])
+                # Create columns for hand info and action buttons
+                hand_col, replay_col, coach_col = st.columns([5, 1, 1])
 
                 with hand_col:
                     st.markdown(
                         f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
                         f":{color}[${result:+}]{villain_str}"
                     )
+
+                with replay_col:
+                    if st.button("🎬", key=f"replay_hand_{idx}", help="Replay Hand"):
+                        st.session_state["replay_hand"] = hand
+                        st.rerun()
 
                 with coach_col:
                     if has_api_key:
@@ -1200,6 +1337,402 @@ def render_analytics() -> None:
     render_analytics_page(sessions, hands)
 
 
+def render_simulator() -> None:
+    """Render Monte Carlo bankroll simulator page."""
+    st.title("🎲 Monte Carlo Simulator")
+    st.markdown("*Risk of Ruin analysis using Monte Carlo simulation*")
+
+    # Get current stats from sessions for defaults
+    sessions = load_sessions()
+    edge = get_edge_summary(sessions)
+
+    # Default values from actual data or reasonable estimates
+    default_winrate = edge.get('bb_per_100', 5.0) if edge.get('total_hands', 0) > 100 else 5.0
+    default_bankroll = st.session_state.bankroll
+    default_target = st.session_state.bankroll_target
+
+    st.markdown("---")
+
+    # Input Section
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📊 Simulation Parameters")
+
+        current_br = st.number_input(
+            "Current Bankroll ($)",
+            min_value=1.0,
+            value=float(default_bankroll),
+            step=10.0,
+            format="%.2f",
+            help="Your current poker bankroll",
+        )
+
+        target_br = st.number_input(
+            "Target Bankroll ($)",
+            min_value=current_br + 1,
+            value=float(max(default_target, current_br + 100)),
+            step=50.0,
+            format="%.2f",
+            help="Goal bankroll (for probability calculation)",
+        )
+
+        winrate = st.number_input(
+            "Win Rate (BB/100)",
+            min_value=-20.0,
+            max_value=50.0,
+            value=float(default_winrate),
+            step=0.5,
+            format="%.1f",
+            help="Your estimated win rate in big blinds per 100 hands",
+        )
+
+    with col2:
+        st.subheader("⚙️ Advanced Settings")
+
+        std_dev = st.number_input(
+            "Standard Deviation (BB/100)",
+            min_value=20.0,
+            max_value=200.0,
+            value=80.0,
+            step=5.0,
+            help="Typical range: 60-100 for NLHE. Higher = more variance.",
+        )
+
+        hands_to_sim = st.select_slider(
+            "Hands to Simulate",
+            options=[10000, 25000, 50000, 100000, 200000, 500000],
+            value=50000,
+            help="More hands = longer time horizon",
+        )
+
+        n_sims = st.select_slider(
+            "Number of Simulations",
+            options=[100, 500, 1000, 2500, 5000],
+            value=1000,
+            help="More sims = more accurate but slower",
+        )
+
+        big_blind = st.selectbox(
+            "Big Blind Size ($)",
+            options=[0.02, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00, 5.00],
+            index=2,  # Default to $0.10
+            format_func=lambda x: f"${x:.2f}",
+            help="The big blind at your stake",
+        )
+
+    # Run Simulation Button
+    st.markdown("---")
+
+    if st.button("🚀 Run Simulation", type="primary", use_container_width=True):
+        with st.spinner("Running Monte Carlo simulation..."):
+            try:
+                result = simulate_bankroll(
+                    current_br=current_br,
+                    winrate_bb100=winrate,
+                    std_dev_bb100=std_dev,
+                    hands=hands_to_sim,
+                    n_sims=n_sims,
+                    target_br=target_br,
+                    big_blind=big_blind,
+                )
+
+                # Store in session state for display
+                st.session_state.sim_result = result
+                st.session_state.sim_params = {
+                    'current_br': current_br,
+                    'target_br': target_br,
+                    'winrate': winrate,
+                    'std_dev': std_dev,
+                    'hands': hands_to_sim,
+                    'big_blind': big_blind,
+                }
+
+            except Exception as e:
+                st.error(f"Simulation error: {str(e)}")
+
+    # Display Results
+    if hasattr(st.session_state, 'sim_result') and st.session_state.sim_result is not None:
+        result = st.session_state.sim_result
+        params = st.session_state.sim_params
+
+        st.markdown("---")
+        st.subheader("📈 Simulation Results")
+
+        # Key Metrics Row
+        m1, m2, m3, m4 = st.columns(4)
+
+        with m1:
+            ror_color = "#E74C3C" if result.risk_of_ruin > 0.05 else "#27AE60"
+            st.markdown(
+                f"""<div style="background: linear-gradient(135deg, {ror_color}, {ror_color}dd);
+                padding: 20px; border-radius: 10px; text-align: center;">
+                <h2 style="color: white; margin: 0;">{result.risk_of_ruin:.1%}</h2>
+                <p style="color: #ffffffcc; margin: 5px 0 0 0;">Risk of Ruin</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        with m2:
+            prob_color = "#27AE60" if result.prob_reach_target > 0.5 else "#F39C12"
+            st.markdown(
+                f"""<div style="background: linear-gradient(135deg, {prob_color}, {prob_color}dd);
+                padding: 20px; border-radius: 10px; text-align: center;">
+                <h2 style="color: white; margin: 0;">{result.prob_reach_target:.1%}</h2>
+                <p style="color: #ffffffcc; margin: 5px 0 0 0;">P(Reach Target)</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        with m3:
+            st.markdown(
+                f"""<div style="background: linear-gradient(135deg, #3498DB, #2980B9);
+                padding: 20px; border-radius: 10px; text-align: center;">
+                <h2 style="color: white; margin: 0;">${result.expected_final_br:,.0f}</h2>
+                <p style="color: #ffffffcc; margin: 5px 0 0 0;">Expected Value</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        with m4:
+            st.markdown(
+                f"""<div style="background: linear-gradient(135deg, #9B59B6, #8E44AD);
+                padding: 20px; border-radius: 10px; text-align: center;">
+                <h2 style="color: white; margin: 0;">${result.max_drawdown_median:,.0f}</h2>
+                <p style="color: #ffffffcc; margin: 5px 0 0 0;">Median Max DD</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Fan Chart
+        st.subheader("🎯 Bankroll Trajectories")
+
+        # Get percentile data for confidence bands
+        percentiles = get_percentile_trajectories(result)
+        x_axis = np.linspace(0, params['hands'], result.trajectories.shape[1])
+
+        # Create Plotly figure
+        fig = go.Figure()
+
+        # Add confidence bands (filled areas)
+        # 5th-95th percentile band (lightest)
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([x_axis, x_axis[::-1]]),
+            y=np.concatenate([percentiles['p95'], percentiles['p5'][::-1]]),
+            fill='toself',
+            fillcolor='rgba(52, 152, 219, 0.15)',
+            line=dict(color='rgba(0,0,0,0)'),
+            name='5th-95th Percentile',
+            showlegend=True,
+        ))
+
+        # 25th-75th percentile band (darker)
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([x_axis, x_axis[::-1]]),
+            y=np.concatenate([percentiles['p75'], percentiles['p25'][::-1]]),
+            fill='toself',
+            fillcolor='rgba(52, 152, 219, 0.3)',
+            line=dict(color='rgba(0,0,0,0)'),
+            name='25th-75th Percentile',
+            showlegend=True,
+        ))
+
+        # Sample trajectories (thin lines)
+        sample_trajectories = get_sample_trajectories(result, n_samples=50)
+        for i, traj in enumerate(sample_trajectories):
+            fig.add_trace(go.Scatter(
+                x=x_axis,
+                y=traj,
+                mode='lines',
+                line=dict(color='rgba(52, 152, 219, 0.2)', width=0.5),
+                showlegend=False,
+                hoverinfo='skip',
+            ))
+
+        # Median line (bold)
+        fig.add_trace(go.Scatter(
+            x=x_axis,
+            y=percentiles['p50'],
+            mode='lines',
+            line=dict(color='#2980B9', width=3),
+            name='Median',
+        ))
+
+        # Starting bankroll line
+        fig.add_hline(
+            y=params['current_br'],
+            line_dash="dash",
+            line_color="#F39C12",
+            annotation_text=f"Start: ${params['current_br']:,.0f}",
+        )
+
+        # Target line
+        fig.add_hline(
+            y=params['target_br'],
+            line_dash="dash",
+            line_color="#27AE60",
+            annotation_text=f"Target: ${params['target_br']:,.0f}",
+        )
+
+        # Bust line
+        fig.add_hline(
+            y=0,
+            line_dash="solid",
+            line_color="#E74C3C",
+            annotation_text="Bust",
+        )
+
+        fig.update_layout(
+            title=f"Bankroll Evolution Over {params['hands']:,} Hands ({result.simulations_run:,} Simulations)",
+            xaxis_title="Hands Played",
+            yaxis_title="Bankroll ($)",
+            template="plotly_dark",
+            height=500,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+            ),
+            hovermode='x unified',
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Distribution of Final Bankrolls
+        st.subheader("📊 Final Bankroll Distribution")
+
+        final_brs = result.trajectories[:, -1]
+
+        fig_hist = go.Figure()
+        fig_hist.add_trace(go.Histogram(
+            x=final_brs,
+            nbinsx=50,
+            marker_color='#3498DB',
+            opacity=0.7,
+            name='Final Bankroll',
+        ))
+
+        # Add vertical lines for key metrics
+        fig_hist.add_vline(x=params['current_br'], line_dash="dash", line_color="#F39C12",
+                          annotation_text="Start")
+        fig_hist.add_vline(x=params['target_br'], line_dash="dash", line_color="#27AE60",
+                          annotation_text="Target")
+        fig_hist.add_vline(x=result.median_final_br, line_dash="solid", line_color="#9B59B6",
+                          annotation_text="Median")
+
+        fig_hist.update_layout(
+            title="Distribution of Final Bankroll Values",
+            xaxis_title="Final Bankroll ($)",
+            yaxis_title="Frequency",
+            template="plotly_dark",
+            height=350,
+            showlegend=False,
+        )
+
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+        # Detailed Statistics
+        st.subheader("📋 Detailed Statistics")
+
+        stat_col1, stat_col2, stat_col3 = st.columns(3)
+
+        with stat_col1:
+            st.markdown("**Percentile Outcomes**")
+            st.markdown(f"- 5th percentile: ${result.percentile_5:,.2f}")
+            st.markdown(f"- 25th percentile: ${result.percentile_25:,.2f}")
+            st.markdown(f"- Median (50th): ${result.median_final_br:,.2f}")
+            st.markdown(f"- 75th percentile: ${result.percentile_75:,.2f}")
+            st.markdown(f"- 95th percentile: ${result.percentile_95:,.2f}")
+
+        with stat_col2:
+            st.markdown("**Risk Metrics**")
+            st.markdown(f"- Risk of Ruin: {result.risk_of_ruin:.2%}")
+            st.markdown(f"- P(Reach ${params['target_br']:,.0f}): {result.prob_reach_target:.2%}")
+            st.markdown(f"- Median Max Drawdown: ${result.max_drawdown_median:,.2f}")
+            st.markdown(f"- Expected Final BR: ${result.expected_final_br:,.2f}")
+
+        with stat_col3:
+            # Kelly criterion
+            kelly = calculate_kelly_criterion(params['winrate'], params['std_dev'])
+            time_est = estimate_time_to_target(
+                params['current_br'],
+                params['target_br'],
+                params['winrate'],
+                big_blind=params['big_blind'],
+            )
+
+            st.markdown("**Recommendations**")
+            st.markdown(f"- Conservative buyins: {kelly['conservative_buyins']}")
+            st.markdown(f"- Moderate buyins: {kelly['moderate_buyins']}")
+            st.markdown(f"- Est. hours to target: {time_est['hours_needed']}")
+            st.markdown(f"- Est. sessions: {time_est['sessions_needed']}")
+
+        # Interpretation
+        st.markdown("---")
+        st.subheader("🎓 Interpretation")
+
+        if result.risk_of_ruin < 0.01:
+            st.success(
+                f"**Excellent bankroll management!** With only {result.risk_of_ruin:.1%} risk of ruin, "
+                f"your bankroll is well-protected. You have a {result.prob_reach_target:.0%} chance "
+                f"of reaching your ${params['target_br']:,.0f} target."
+            )
+        elif result.risk_of_ruin < 0.05:
+            st.info(
+                f"**Solid bankroll position.** A {result.risk_of_ruin:.1%} risk of ruin is acceptable "
+                f"for most players. Consider your {result.max_drawdown_median:,.0f} median max drawdown "
+                f"when planning session stop-losses."
+            )
+        elif result.risk_of_ruin < 0.15:
+            st.warning(
+                f"**Elevated risk detected.** With {result.risk_of_ruin:.1%} risk of ruin, you may want "
+                f"to consider moving down in stakes or adding to your bankroll. Your current setup "
+                f"has significant downside risk."
+            )
+        else:
+            st.error(
+                f"**High risk of ruin ({result.risk_of_ruin:.1%})!** This bankroll is undersized for "
+                f"your stakes and/or variance. Strongly recommend: (1) Move down in stakes, "
+                f"(2) Add funds, or (3) Improve your win rate before continuing."
+            )
+
+    else:
+        # No simulation run yet - show educational content
+        st.markdown("---")
+        st.info("👆 Configure parameters above and click **Run Simulation** to analyze your bankroll risk.")
+
+        with st.expander("📚 What is Risk of Ruin?"):
+            st.markdown("""
+            **Risk of Ruin (RoR)** is the probability that you'll lose your entire bankroll before
+            reaching your goal. It depends on:
+
+            - **Bankroll size**: More buyins = lower RoR
+            - **Win rate**: Higher winrate = lower RoR
+            - **Variance**: Lower variance = lower RoR
+
+            **General guidelines:**
+            - < 1% RoR: Very conservative (50+ buyins)
+            - 1-5% RoR: Reasonable risk (30-50 buyins)
+            - 5-10% RoR: Aggressive (20-30 buyins)
+            - > 10% RoR: High risk, consider moving down
+            """)
+
+        with st.expander("📊 Understanding the Fan Chart"):
+            st.markdown("""
+            The simulation creates thousands of possible futures for your bankroll:
+
+            - **Median line** (dark): The "typical" outcome
+            - **25th-75th band** (darker): 50% of outcomes fall here
+            - **5th-95th band** (lighter): 90% of outcomes fall here
+            - **Individual paths**: Show actual simulation trajectories
+
+            A wider fan = more uncertainty. Paths that hit zero = bust scenarios.
+            """)
+
+
 def main() -> None:
     """Main application entry point."""
     init_session_state()
@@ -1219,6 +1752,8 @@ def main() -> None:
         render_data_import()
     elif page == "My Ranges":
         render_my_ranges()
+    elif page == "Simulator":
+        render_simulator()
 
 
 if __name__ == "__main__":

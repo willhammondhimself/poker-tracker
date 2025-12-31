@@ -8,6 +8,13 @@ SESSIONS_FILE = DATA_DIR / "sessions.json"
 DUMMY_SESSIONS_FILE = DATA_DIR / "dummy_sessions.json"
 HANDS_FILE = DATA_DIR / "hands.json"
 OPPONENTS_FILE = DATA_DIR / "opponents.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+# Default settings
+DEFAULT_SETTINGS = {
+    "bankroll": 350.00,
+    "bankroll_target": 500.00,
+}
 
 
 def load_sessions() -> list[dict]:
@@ -498,3 +505,126 @@ def get_or_create_opponent(name: str) -> dict:
 
     # Fallback
     return {"id": None, "name": name, "stats": {}, "tags": [], "notes": ""}
+
+
+def get_opponent_with_tags(opponent_id: int) -> dict | None:
+    """
+    Get opponent with auto-generated tags based on stats.
+
+    Args:
+        opponent_id: The opponent's ID.
+
+    Returns:
+        dict | None: Opponent with 'auto_tags' field, or None if not found.
+    """
+    from utils.tagging_engine import auto_tag, analyze_opponent_profile
+
+    opponent = get_opponent(opponent_id)
+    if not opponent:
+        return None
+
+    # Calculate stats and generate tags
+    stats = calculate_opponent_stats(opponent)
+    profile = analyze_opponent_profile(opponent, stats)
+
+    # Add profile data to opponent
+    opponent['auto_tags'] = profile['tags']
+    opponent['tags_html'] = profile['tags_html']
+    opponent['exploitation_tips'] = profile['tips']
+    opponent['player_type'] = profile['primary_type']
+    opponent['calculated_stats'] = stats
+
+    return opponent
+
+
+def get_all_opponents_with_tags() -> list[dict]:
+    """
+    Load all opponents with auto-generated tags.
+
+    Returns:
+        list[dict]: List of opponents with tags applied.
+    """
+    from utils.tagging_engine import auto_tag, get_tag_html
+
+    opponents = load_opponents()
+    for opp in opponents:
+        stats = calculate_opponent_stats(opp)
+        tags = auto_tag(stats, opp)
+        opp['auto_tags'] = tags
+        opp['tags_html'] = get_tag_html(tags)
+        opp['calculated_stats'] = stats
+
+    return opponents
+
+
+# ============================================
+# Settings Management
+# ============================================
+
+def load_settings() -> dict:
+    """
+    Load user settings from JSON file.
+
+    Returns:
+        dict: Settings dictionary with bankroll, bankroll_target, etc.
+    """
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, 'r') as f:
+                settings = json.load(f)
+                # Merge with defaults for any missing keys
+                return {**DEFAULT_SETTINGS, **settings}
+        return DEFAULT_SETTINGS.copy()
+    except (FileNotFoundError, json.JSONDecodeError):
+        return DEFAULT_SETTINGS.copy()
+
+
+def save_settings(settings: dict) -> bool:
+    """
+    Save user settings to JSON file.
+
+    Args:
+        settings: Settings dictionary to save.
+
+    Returns:
+        bool: True if saved successfully, False otherwise.
+    """
+    try:
+        # Ensure data directory exists
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def get_bankroll() -> float:
+    """Get current bankroll from settings."""
+    settings = load_settings()
+    return settings.get("bankroll", DEFAULT_SETTINGS["bankroll"])
+
+
+def get_bankroll_target() -> float:
+    """Get bankroll target from settings."""
+    settings = load_settings()
+    return settings.get("bankroll_target", DEFAULT_SETTINGS["bankroll_target"])
+
+
+def update_bankroll(bankroll: float, target: float = None) -> bool:
+    """
+    Update bankroll (and optionally target) in settings.
+
+    Args:
+        bankroll: New bankroll amount.
+        target: New target amount (optional).
+
+    Returns:
+        bool: True if saved successfully.
+    """
+    settings = load_settings()
+    settings["bankroll"] = round(bankroll, 2)
+    if target is not None:
+        settings["bankroll_target"] = round(target, 2)
+    return save_settings(settings)

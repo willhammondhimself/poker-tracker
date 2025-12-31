@@ -18,3 +18,9 @@ from .poker_math import (
     hands_needed_for_confidence,
     calculate_hourly_rate_ci,
 )
+
+from .report_generator import (
+    generate_tearsheet,
+    render_download_button,
+    calculate_report_metrics,
+)

@@ -363,3 +363,9 @@ def render_analytics_page(sessions: list[dict], hands: list[dict]) -> None:
 
     # Position analysis
     render_position_winrate(hands)
+
+    # Quant Radar - Playstyle comparison
+    if hands:
+        st.markdown("---")
+        from .radar_chart import render_radar_chart
+        render_radar_chart(hands, title="🎯 Quant Radar: Your Playstyle vs GTO")
