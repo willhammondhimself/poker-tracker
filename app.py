@@ -27,6 +27,7 @@ from utils.ai_coach import (
     get_api_key,
 )
 from utils.ignition_parser import parse_ignition_file, get_import_summary
+from utils.range_analyzer import analyze_ranges, get_range_grid_data, get_position_summary, RANKS
 from components import (
     render_session_form,
     render_start_session_form,
@@ -99,7 +100,7 @@ def render_sidebar() -> str:
         # Navigation
         page = st.radio(
             "Navigation",
-            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "Analytics"],
+            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "My Ranges", "Analytics"],
             label_visibility="collapsed",
         )
 
@@ -917,6 +918,235 @@ def render_data_import() -> None:
         st.info("No imported sessions yet. Upload a hand history file above to get started.")
 
 
+def render_my_ranges() -> None:
+    """Render the range chart visualization page."""
+    import plotly.graph_objects as go
+
+    st.header("📊 My Ranges")
+    st.markdown("Visualize your actual playing ranges by position")
+
+    # Load all hands
+    hands = load_hands()
+
+    if not hands:
+        st.warning("No hands logged yet. Import hand histories or log hands manually to see your ranges.")
+        return
+
+    # Position filter
+    positions = ['All Positions', 'BTN', 'CO', 'MP', 'EP', 'SB', 'BB']
+
+    col1, col2, col3 = st.columns([2, 2, 2])
+    with col1:
+        selected_position = st.selectbox(
+            "Position",
+            options=positions,
+            index=0,
+        )
+    with col2:
+        view_mode = st.selectbox(
+            "View Mode",
+            options=['Frequency', 'Profit', 'Win Rate'],
+            index=0,
+        )
+    with col3:
+        color_scheme = st.selectbox(
+            "Color Scheme",
+            options=['Green/Red', 'Blue', 'Heat'],
+            index=0,
+        )
+
+    # Get position filter
+    pos_filter = None if selected_position == 'All Positions' else selected_position
+
+    # Analyze ranges
+    range_data = analyze_ranges(hands, pos_filter)
+    grid_data = get_range_grid_data(
+        range_data['matrix'],
+        mode=view_mode.lower().replace(' ', '')
+    )
+
+    # Show summary stats
+    st.markdown("---")
+    stat_cols = st.columns(4)
+    with stat_cols[0]:
+        st.metric("Total Hands", range_data['total_hands'])
+    with stat_cols[1]:
+        st.metric("VPIP Hands", range_data['vpip_hands'])
+    with stat_cols[2]:
+        st.metric("VPIP %", f"{range_data['vpip_pct']}%")
+    with stat_cols[3]:
+        total_profit = sum(cell['profit'] for row in grid_data for cell in row)
+        profit_color = "green" if total_profit >= 0 else "red"
+        st.metric("Total Profit", f"${total_profit:+.2f}")
+
+    st.markdown("---")
+
+    # Build the heatmap
+    # Create labels and values matrices
+    z_values = []
+    hover_text = []
+    annotations = []
+
+    for row_idx, row in enumerate(grid_data):
+        z_row = []
+        hover_row = []
+        for col_idx, cell in enumerate(row):
+            # Value for color intensity
+            if view_mode == 'Frequency':
+                z_row.append(cell['count'])
+            elif view_mode == 'Profit':
+                z_row.append(cell['avg_profit'])
+            else:  # Win Rate
+                z_row.append(cell['winrate'] - 50)  # Center around 50%
+
+            # Hover text
+            hover_row.append(
+                f"<b>{cell['hand']}</b><br>"
+                f"Count: {cell['count']}<br>"
+                f"Profit: ${cell['profit']:+.2f}<br>"
+                f"Avg: ${cell['avg_profit']:+.2f}<br>"
+                f"Win Rate: {cell['winrate']}%"
+            )
+
+            # Annotation (hand name)
+            annotations.append(dict(
+                x=col_idx,
+                y=row_idx,
+                text=cell['hand'],
+                font=dict(
+                    size=10,
+                    color='white' if cell['count'] > 0 else 'gray'
+                ),
+                showarrow=False,
+            ))
+
+        z_values.append(z_row)
+        hover_text.append(hover_row)
+
+    # Color scale based on selection
+    if color_scheme == 'Green/Red':
+        if view_mode == 'Frequency':
+            colorscale = [[0, '#1a1a2e'], [0.5, '#2d5a27'], [1, '#27ae60']]
+        else:
+            colorscale = [[0, '#c0392b'], [0.5, '#2c3e50'], [1, '#27ae60']]
+    elif color_scheme == 'Blue':
+        colorscale = [[0, '#1a1a2e'], [0.5, '#2980b9'], [1, '#3498db']]
+    else:  # Heat
+        colorscale = [[0, '#2c3e50'], [0.33, '#e74c3c'], [0.66, '#f39c12'], [1, '#f1c40f']]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_values,
+        x=RANKS,
+        y=RANKS,
+        hovertext=hover_text,
+        hoverinfo='text',
+        colorscale=colorscale,
+        showscale=True,
+        colorbar=dict(
+            title=view_mode,
+            titleside='right',
+        ),
+    ))
+
+    # Add annotations
+    fig.update_layout(
+        annotations=annotations,
+        xaxis=dict(
+            title='',
+            tickvals=list(range(13)),
+            ticktext=RANKS,
+            side='top',
+        ),
+        yaxis=dict(
+            title='',
+            tickvals=list(range(13)),
+            ticktext=RANKS,
+            autorange='reversed',
+        ),
+        height=600,
+        margin=dict(l=40, r=40, t=40, b=40),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Position breakdown
+    st.markdown("---")
+    st.subheader("📍 Position Breakdown")
+
+    position_stats = get_position_summary(hands)
+
+    if position_stats:
+        # Sort by standard position order
+        pos_order = ['EP', 'MP', 'CO', 'BTN', 'SB', 'BB']
+        sorted_positions = sorted(
+            position_stats.items(),
+            key=lambda x: pos_order.index(x[0]) if x[0] in pos_order else 99
+        )
+
+        pos_cols = st.columns(min(6, len(sorted_positions)))
+        for i, (pos, stats) in enumerate(sorted_positions[:6]):
+            with pos_cols[i % 6]:
+                profit_color = "🟢" if stats['profit'] >= 0 else "🔴"
+                st.markdown(f"**{pos}**")
+                st.markdown(f"Hands: {stats['hands']}")
+                st.markdown(f"VPIP: {stats['vpip_pct']}%")
+                st.markdown(f"PFR: {stats['pfr_pct']}%")
+                st.markdown(f"{profit_color} ${stats['profit']:+.2f}")
+
+    # Top hands analysis
+    st.markdown("---")
+    st.subheader("🏆 Top Performing Hands")
+
+    # Flatten grid and sort by profit
+    all_hands = []
+    for row in grid_data:
+        for cell in row:
+            if cell['count'] > 0:
+                all_hands.append(cell)
+
+    # Sort by profit
+    top_profitable = sorted(all_hands, key=lambda x: x['profit'], reverse=True)[:10]
+    most_played = sorted(all_hands, key=lambda x: x['count'], reverse=True)[:10]
+
+    top_col1, top_col2 = st.columns(2)
+
+    with top_col1:
+        st.markdown("**💰 Most Profitable**")
+        for hand in top_profitable[:5]:
+            color = "green" if hand['profit'] >= 0 else "red"
+            st.markdown(
+                f"**{hand['hand']}** - :{color}[${hand['profit']:+.2f}] "
+                f"({hand['count']} hands, {hand['winrate']}% win)"
+            )
+
+    with top_col2:
+        st.markdown("**📈 Most Played**")
+        for hand in most_played[:5]:
+            color = "green" if hand['profit'] >= 0 else "red"
+            st.markdown(
+                f"**{hand['hand']}** - {hand['count']} hands "
+                f"(:{color}[${hand['profit']:+.2f}], {hand['winrate']}% win)"
+            )
+
+    # Worst hands
+    st.markdown("---")
+    st.subheader("⚠️ Leak Detection")
+
+    worst_hands = sorted(all_hands, key=lambda x: x['profit'])[:5]
+    if worst_hands and worst_hands[0]['profit'] < 0:
+        st.markdown("**Hands losing the most money:**")
+        for hand in worst_hands:
+            if hand['profit'] < 0:
+                st.markdown(
+                    f"**{hand['hand']}** - :red[${hand['profit']:.2f}] "
+                    f"({hand['count']} hands, {hand['winrate']}% win)"
+                )
+    else:
+        st.success("No significant leaks detected! All hands are profitable or break-even.")
+
+
 def render_analytics() -> None:
     """Render the analytics page with charts and metrics."""
     sessions = load_sessions()
@@ -941,6 +1171,8 @@ def main() -> None:
         render_analytics()
     elif page == "Data Import":
         render_data_import()
+    elif page == "My Ranges":
+        render_my_ranges()
 
 
 if __name__ == "__main__":
