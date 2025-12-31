@@ -28,6 +28,7 @@ from utils.ai_coach import (
 )
 from utils.ignition_parser import parse_ignition_file, get_import_summary
 from utils.range_analyzer import analyze_ranges, get_range_grid_data, get_position_summary, RANKS
+from utils.poker_math import calculate_winrate_ci, get_sample_size_message
 from components import (
     render_session_form,
     render_start_session_form,
@@ -36,6 +37,7 @@ from components import (
     render_board_cards,
     render_analytics_page,
     parse_multi_cards,
+    render_hand_visualizer,
 )
 
 
@@ -265,6 +267,39 @@ def render_dashboard() -> None:
             f'</div>',
             unsafe_allow_html=True,
         )
+
+        # Confidence Interval Display
+        total_hands = edge_summary["total_hands"]
+        if total_hands >= 10:
+            # Calculate total BB won from overall_bb and hands
+            total_bb_won = overall_bb * total_hands / 100
+            ci_result = calculate_winrate_ci(total_bb_won, total_hands)
+
+            # Color based on CI crossing zero
+            if ci_result["ci_lower"] > 0:
+                ci_color = "#27AE60"  # Green - significant winner
+                ci_bg = "linear-gradient(135deg, rgba(39, 174, 96, 0.15), rgba(46, 204, 113, 0.1))"
+            elif ci_result["ci_upper"] < 0:
+                ci_color = "#E74C3C"  # Red - significant loser
+                ci_bg = "linear-gradient(135deg, rgba(231, 76, 60, 0.15), rgba(192, 57, 43, 0.1))"
+            else:
+                ci_color = "#F39C12"  # Yellow - inconclusive
+                ci_bg = "linear-gradient(135deg, rgba(243, 156, 18, 0.15), rgba(230, 126, 34, 0.1))"
+
+            st.markdown(
+                f'<div style="background: {ci_bg}; border-radius: 10px; padding: 12px; '
+                f'margin-top: 15px; border: 1px solid {ci_color}40;">'
+                f'<div style="text-align: center;">'
+                f'<span style="color: #888; font-size: 0.9em;">95% Confidence Interval:</span><br>'
+                f'<span style="color: {ci_color}; font-weight: bold; font-size: 1.3em;">'
+                f'{ci_result["ci_lower"]:+.1f} to {ci_result["ci_upper"]:+.1f} BB/100</span>'
+                f'</div>'
+                f'<div style="color: #aaa; font-size: 0.8em; margin-top: 8px; text-align: center;">'
+                f'{get_sample_size_message(ci_result["sample_adequacy"])}'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown("---")
 
@@ -703,6 +738,17 @@ def render_hand_logger() -> None:
         with st.spinner("🤖 Analyzing hand..."):
             result = analyze_hand(hand_to_analyze, session_for_analysis, opponent_data)
             render_analysis_result(result)
+
+        # Show the hand being analyzed with visual cards
+        st.markdown("##### Hand Analyzed:")
+        render_hand_visualizer(
+            hole_cards=hand_to_analyze.get("hole_cards", []),
+            board=hand_to_analyze.get("board"),
+            position=hand_to_analyze.get("position"),
+            opponent=hand_to_analyze.get("opponent_name"),
+            action=hand_to_analyze.get("action"),
+            result=hand_to_analyze.get("result"),
+        )
 
         if st.button("✖️ Close Analysis", use_container_width=True):
             del st.session_state["analyze_hand"]
