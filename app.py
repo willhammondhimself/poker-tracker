@@ -121,7 +121,7 @@ def render_sidebar() -> str:
         # Navigation
         page = st.radio(
             "Navigation",
-            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "My Ranges", "Analytics", "Simulator"],
+            options=["Dashboard", "Log Session", "Hand Logger", "Data Import", "My Ranges", "Analytics", "Simulator", "Quant Lab"],
             label_visibility="collapsed",
         )
 
@@ -1733,6 +1733,278 @@ def render_simulator() -> None:
             """)
 
 
+def render_quant_lab() -> None:
+    """Render the Quant Research Lab page with advanced analytics."""
+    import pandas as pd
+    from analytics.volatility import VolatilityModel, render_volatility_chart
+    from analytics.clustering import VillainCluster, render_cluster_chart
+    from analytics.bayesian import WinrateEstimator, render_posterior_chart
+
+    st.title("🔬 Quant Research Lab")
+    st.markdown("*Advanced statistical analysis for edge quantification*")
+
+    # Load data
+    sessions = load_sessions()
+    hands = load_hands()
+    opponents = load_opponents()
+
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs([
+        "📈 Risk Modeling",
+        "👥 Population Analysis",
+        "🎯 Bayesian Validation",
+    ])
+
+    # =========================================================================
+    # Tab 1: Risk Modeling (GARCH Volatility)
+    # =========================================================================
+    with tab1:
+        st.subheader("Market Regime Detection (GARCH)")
+        st.markdown("""
+        Uses **GARCH(1,1)** to model conditional volatility of your session PnL.
+        Identifies whether you're in a Low, Medium, or High volatility regime.
+        """)
+
+        # Prepare session PnL data
+        completed_sessions = [s for s in sessions if s.get('profit') is not None]
+
+        if len(completed_sessions) >= 10:
+            # Create PnL series
+            pnl_data = []
+            for s in completed_sessions:
+                date = s.get('date', '2024-01-01')
+                profit = s.get('profit', 0)
+                pnl_data.append({'date': date, 'pnl': profit})
+
+            pnl_df = pd.DataFrame(pnl_data)
+            pnl_df['date'] = pd.to_datetime(pnl_df['date'])
+            pnl_df = pnl_df.sort_values('date')
+            pnl_series = pd.Series(pnl_df['pnl'].values, index=pnl_df['date'])
+
+            # Render chart and get model
+            model = render_volatility_chart(pnl_series)
+
+            if model:
+                summary = model.get_summary()
+
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    regime = summary['current_regime']
+                    regime_colors = {'Low': '#27AE60', 'Medium': '#F39C12', 'High': '#E74C3C'}
+                    st.markdown(
+                        f"""<div style="text-align: center; padding: 20px;
+                        background: {regime_colors.get(regime, '#95A5A6')};
+                        border-radius: 10px;">
+                        <div style="color: white; font-size: 2em; font-weight: bold;">
+                        {regime}</div>
+                        <div style="color: #ffffffcc;">Current Regime</div>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
+                with col2:
+                    st.metric(
+                        "Current Volatility",
+                        f"${summary['current_volatility']:.2f}",
+                    )
+
+                with col3:
+                    st.metric(
+                        "Vol Percentile",
+                        f"{summary['volatility_percentile']:.0f}%",
+                    )
+
+                # Interpretation
+                st.markdown("---")
+                if regime == 'High':
+                    st.warning("""
+                    **High Volatility Regime**: Your recent sessions show elevated variance.
+                    Consider tighter bankroll management and avoiding marginal spots.
+                    """)
+                elif regime == 'Low':
+                    st.success("""
+                    **Low Volatility Regime**: Your results are stable.
+                    Good conditions for shot-taking at higher stakes if rolled.
+                    """)
+                else:
+                    st.info("""
+                    **Medium Volatility Regime**: Normal variance expected.
+                    Continue standard bankroll management protocols.
+                    """)
+        else:
+            st.info(f"Need at least 10 sessions for volatility modeling. Currently have {len(completed_sessions)}.")
+
+            # Offer to generate synthetic data
+            if st.button("Generate Demo Data", key="gen_vol_data"):
+                from utils.synthetic_data import save_synthetic_data
+                result = save_synthetic_data(n_sessions=50, n_opponents=25, n_hands=500)
+                st.success(f"Generated {result['sessions']} sessions, {result['opponents']} opponents, {result['hands']} hands")
+                st.rerun()
+
+    # =========================================================================
+    # Tab 2: Population Analysis (K-Means Clustering)
+    # =========================================================================
+    with tab2:
+        st.subheader("Villain Taxonomy (Unsupervised Learning)")
+        st.markdown("""
+        Uses **PCA** for dimensionality reduction and **K-Means** clustering
+        to automatically classify opponents into behavioral archetypes.
+        """)
+
+        # Prepare opponent stats
+        if opponents and len(opponents) >= 4:
+            # Build stats DataFrame
+            stats_data = []
+            for opp in opponents:
+                stats = opp.get('stats', {})
+                calc_stats = opp.get('calculated_stats', {})
+                hands_played = stats.get('hands_played', 0)
+
+                if hands_played >= 50:
+                    # Calculate percentages if not pre-calculated
+                    if calc_stats:
+                        vpip = calc_stats.get('vpip', 0)
+                        pfr = calc_stats.get('pfr', 0)
+                        af = calc_stats.get('af', 0)
+                        wtsd = calc_stats.get('wtsd', 25)
+                    else:
+                        vpip = (stats.get('vpip_count', 0) / hands_played * 100) if hands_played > 0 else 0
+                        pfr = (stats.get('pfr_count', 0) / hands_played * 100) if hands_played > 0 else 0
+                        af = pfr / (vpip - pfr) if vpip > pfr else 0
+                        wtsd = 25  # Default
+
+                    stats_data.append({
+                        'name': opp.get('name', 'Unknown'),
+                        'vpip': vpip,
+                        'pfr': pfr,
+                        'af': af,
+                        'wtsd': wtsd,
+                        'hands_played': hands_played,
+                    })
+
+            if len(stats_data) >= 4:
+                player_stats_df = pd.DataFrame(stats_data)
+
+                # Render cluster chart
+                model = render_cluster_chart(player_stats_df)
+
+                if model and model.cluster_stats is not None:
+                    st.markdown("---")
+                    st.markdown("### Cluster Centroids")
+
+                    # Display cluster stats
+                    display_df = model.cluster_stats[['archetype', 'count', 'vpip', 'pfr', 'af']].copy()
+                    display_df.columns = ['Archetype', 'Players', 'Avg VPIP', 'Avg PFR', 'Avg AF']
+                    display_df['Avg VPIP'] = display_df['Avg VPIP'].round(1)
+                    display_df['Avg PFR'] = display_df['Avg PFR'].round(1)
+                    display_df['Avg AF'] = display_df['Avg AF'].round(2)
+
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                    # Archetype legend
+                    with st.expander("📖 Archetype Guide"):
+                        from analytics.clustering import ARCHETYPES
+                        for name, info in ARCHETYPES.items():
+                            st.markdown(f"**{name}**: {info['description']}")
+                            st.markdown(f"*Exploit*: {info['exploit']}")
+                            st.markdown("---")
+            else:
+                st.info(f"Need at least 4 opponents with 50+ hands. Found {len(stats_data)} qualifying.")
+        else:
+            st.info(f"Need at least 4 opponents for clustering. Currently have {len(opponents)}.")
+
+            if st.button("Generate Demo Opponents", key="gen_opp_data"):
+                from utils.synthetic_data import save_synthetic_data
+                result = save_synthetic_data(n_sessions=50, n_opponents=25, n_hands=500)
+                st.success(f"Generated {result['opponents']} opponents with diverse profiles")
+                st.rerun()
+
+    # =========================================================================
+    # Tab 3: Bayesian Validation (Bootstrap Winrate)
+    # =========================================================================
+    with tab3:
+        st.subheader("True Winrate Estimation (Bootstrap)")
+        st.markdown("""
+        Uses **Bootstrap resampling** (10,000 iterations) to estimate the
+        posterior distribution of your true winrate and calculate confidence intervals.
+        """)
+
+        # Get hand results in BB
+        if hands and len(hands) >= 100:
+            hand_results = [h.get('result', 0) for h in hands if h.get('result') is not None]
+
+            if len(hand_results) >= 100:
+                # Render posterior chart
+                model = render_posterior_chart(hand_results)
+
+                if model:
+                    summary = model.get_summary()
+
+                    # Display metrics
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        prob = summary['prob_profitable']
+                        prob_color = '#27AE60' if prob >= 70 else '#E74C3C' if prob < 50 else '#F39C12'
+                        st.markdown(
+                            f"""<div style="text-align: center; padding: 20px;
+                            background: {prob_color};
+                            border-radius: 10px;">
+                            <div style="color: white; font-size: 2em; font-weight: bold;">
+                            {prob:.1f}%</div>
+                            <div style="color: #ffffffcc;">P(Profitable)</div>
+                            </div>""",
+                            unsafe_allow_html=True,
+                        )
+
+                    with col2:
+                        st.metric(
+                            "95% CI Lower",
+                            f"{summary['hdi_lower']:.2f} BB/100",
+                        )
+
+                    with col3:
+                        st.metric(
+                            "95% CI Upper",
+                            f"{summary['hdi_upper']:.2f} BB/100",
+                        )
+
+                    # Interpretation
+                    st.markdown("---")
+                    interpretation = model.get_interpretation()
+                    st.info(interpretation)
+
+                    # Sample size guidance
+                    with st.expander("📊 Sample Size Analysis"):
+                        from analytics.bayesian import calculate_required_sample_size
+
+                        current_n = summary['sample_size']
+                        n_for_1bb = calculate_required_sample_size(target_precision=1.0)
+                        n_for_2bb = calculate_required_sample_size(target_precision=2.0)
+
+                        st.markdown(f"""
+                        **Current Sample**: {current_n:,} hands
+
+                        **Required for ±1 BB/100 precision**: {n_for_1bb:,} hands
+                        **Required for ±2 BB/100 precision**: {n_for_2bb:,} hands
+
+                        The more hands you play, the narrower your confidence interval becomes.
+                        Professional players typically need 100k+ hands for reliable winrate estimates.
+                        """)
+            else:
+                st.info(f"Need at least 100 hands with results. Found {len(hand_results)}.")
+        else:
+            st.info(f"Need at least 100 hands for Bayesian estimation. Currently have {len(hands)}.")
+
+            if st.button("Generate Demo Hands", key="gen_hand_data"):
+                from utils.synthetic_data import save_synthetic_data
+                result = save_synthetic_data(n_sessions=50, n_opponents=25, n_hands=500)
+                st.success(f"Generated {result['hands']} hands with realistic results")
+                st.rerun()
+
+
 def main() -> None:
     """Main application entry point."""
     init_session_state()
@@ -1754,6 +2026,8 @@ def main() -> None:
         render_my_ranges()
     elif page == "Simulator":
         render_simulator()
+    elif page == "Quant Lab":
+        render_quant_lab()
 
 
 if __name__ == "__main__":

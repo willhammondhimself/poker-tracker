@@ -75,6 +75,29 @@ A professional-grade poker analytics platform built with **Streamlit**, featurin
 - **Ignition Casino** hand history parser
 - Automatic session reconstruction from Zone Poker exports
 
+### Advanced Analytics (Quant Lab)
+
+#### GARCH Volatility Modeling
+*Market regime detection using conditional heteroskedasticity*
+- Fits **GARCH(1,1)** model to session PnL for volatility forecasting
+- Classifies current regime: Low, Medium, or High variance
+- Visualizes conditional volatility with ±2σ bands
+- Informs bankroll management and shot-taking decisions
+
+#### Population Clustering
+*Unsupervised learning for villain taxonomy*
+- **PCA** dimensionality reduction to 2 principal components
+- **K-Means** clustering (k=4) for behavioral segmentation
+- Auto-labels clusters: Nit, TAG, LAG, Calling Station, Maniac
+- Interactive scatter plot with hover stats and exploitation tips
+
+#### Bayesian Winrate Estimation
+*Bootstrap inference for true edge quantification*
+- **10,000 bootstrap iterations** to estimate posterior distribution
+- Calculates 95% High Density Interval (HDI) for true winrate
+- Computes P(Profitable): probability of long-term positive expectation
+- Sample size guidance for statistical significance
+
 ---
 
 ## Tech Stack
@@ -85,6 +108,7 @@ A professional-grade poker analytics platform built with **Streamlit**, featurin
 | Visualization | Plotly |
 | Data | Pandas, NumPy |
 | Simulation | NumPy (Monte Carlo) |
+| ML/Stats | scikit-learn, arch, scipy |
 | Reporting | fpdf2 |
 | AI | Perplexity API |
 | Storage | JSON files |
@@ -126,6 +150,10 @@ Or enter your API key in the sidebar settings.
 poker-tracker/
 ├── app.py                    # Main Streamlit application
 ├── requirements.txt          # Python dependencies
+├── analytics/                # Quant Research Platform
+│   ├── volatility.py         # GARCH(1,1) regime detection
+│   ├── clustering.py         # PCA + K-Means villain taxonomy
+│   └── bayesian.py           # Bootstrap winrate estimation
 ├── components/
 │   ├── analytics.py          # Charts and metrics
 │   ├── card_selector.py      # Smart card picker
@@ -143,6 +171,7 @@ poker-tracker/
 │   ├── poker_math.py         # Confidence intervals
 │   ├── range_analyzer.py     # Range visualization
 │   ├── report_generator.py   # PDF tearsheet generation
+│   ├── synthetic_data.py     # Demo data generator
 │   ├── tagging_engine.py     # Opponent classification
 │   └── tilt_detector.py      # Behavioral analysis
 └── data/
@@ -173,8 +202,10 @@ MIT
 ## Author
 
 Built for trading interview demonstrations showcasing:
-- Probability modeling (Monte Carlo)
-- Statistical analysis (Confidence Intervals)
-- Behavioral finance (Tilt Detection)
-- Data engineering (Parsers, JSON persistence)
-- Full-stack development (Streamlit, Plotly)
+- **Econometrics**: GARCH volatility modeling, regime detection
+- **Machine Learning**: PCA dimensionality reduction, K-Means clustering
+- **Bayesian Inference**: Bootstrap resampling, HDI estimation
+- **Probability Modeling**: Monte Carlo simulation, Risk of Ruin
+- **Behavioral Finance**: Tilt detection, loss-chasing identification
+- **Data Engineering**: Parsers, JSON persistence, synthetic data generation
+- **Full-Stack Development**: Streamlit, Plotly, Python
