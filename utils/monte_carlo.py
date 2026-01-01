@@ -1,9 +1,4 @@
-"""
-Monte Carlo Bankroll Simulator - Risk of Ruin Analysis.
-
-Simulates future bankroll trajectories using historical winrate
-and variance to calculate probability of going broke.
-"""
+"""Monte Carlo bankroll sim. 1000 trajectories, calculates RoR."""
 
 import numpy as np
 from typing import Optional
@@ -12,17 +7,17 @@ from dataclasses import dataclass
 
 @dataclass
 class SimulationResult:
-    """Results from Monte Carlo bankroll simulation."""
-    trajectories: np.ndarray          # Shape: (n_sims, n_hands+1)
-    risk_of_ruin: float               # Probability of hitting 0
-    expected_final_br: float          # Mean final bankroll
-    median_final_br: float            # Median final bankroll
-    percentile_5: float               # 5th percentile (bad case)
-    percentile_25: float              # 25th percentile
-    percentile_75: float              # 75th percentile
-    percentile_95: float              # 95th percentile (good case)
-    prob_reach_target: float          # Probability of reaching target
-    max_drawdown_median: float        # Median maximum drawdown
+    """MC sim result."""
+    trajectories: np.ndarray
+    risk_of_ruin: float
+    expected_final_br: float
+    median_final_br: float
+    percentile_5: float
+    percentile_25: float
+    percentile_75: float
+    percentile_95: float
+    prob_reach_target: float
+    max_drawdown_median: float
     hands_simulated: int
     simulations_run: int
 
@@ -52,29 +47,7 @@ def simulate_bankroll(
     target_br: Optional[float] = None,
     big_blind: float = 0.10,
 ) -> SimulationResult:
-    """
-    Run Monte Carlo simulation of bankroll evolution.
-
-    Uses random walk model where each hand's result is drawn from
-    a normal distribution with mean = winrate and std = standard deviation.
-
-    Args:
-        current_br: Starting bankroll in dollars
-        winrate_bb100: Win rate in BB/100 hands (e.g., 5.0 = 5 BB/100)
-        std_dev_bb100: Standard deviation in BB/100 (default 80 for NLHE)
-        hands: Number of hands to simulate
-        n_sims: Number of simulation paths to run
-        target_br: Target bankroll to calculate probability of reaching
-        big_blind: Big blind size in dollars (for BB to $ conversion)
-
-    Returns:
-        SimulationResult with trajectories and statistics
-
-    Mathematical Model:
-        - Each 100-hand block: result ~ N(winrate, std_dev)
-        - Bankroll[t+100] = Bankroll[t] + result * BB_size
-        - Risk of Ruin = P(min(Bankroll) <= 0)
-    """
+    """Random walk sim. Returns RoR and percentile trajectories."""
     # Validate inputs
     if current_br <= 0:
         raise ValueError("Starting bankroll must be positive")
@@ -155,21 +128,7 @@ def calculate_kelly_criterion(
     winrate_bb100: float,
     std_dev_bb100: float = 80.0,
 ) -> dict:
-    """
-    Calculate Kelly Criterion for optimal bankroll sizing.
-
-    Kelly formula for continuous outcomes:
-    f* = μ / σ² (fraction of bankroll to risk per unit of variance)
-
-    For poker, this translates to minimum buyins needed.
-
-    Args:
-        winrate_bb100: Win rate in BB/100
-        std_dev_bb100: Standard deviation in BB/100
-
-    Returns:
-        Dictionary with Kelly calculations
-    """
+    """Kelly criterion -> recommended buyins at different risk levels."""
     if std_dev_bb100 <= 0:
         return {'error': 'Standard deviation must be positive'}
 
@@ -219,19 +178,7 @@ def estimate_time_to_target(
     hands_per_hour: float = 60,
     big_blind: float = 0.10,
 ) -> dict:
-    """
-    Estimate hours needed to reach bankroll target.
-
-    Args:
-        current_br: Current bankroll in dollars
-        target_br: Target bankroll in dollars
-        winrate_bb100: Win rate in BB/100
-        hands_per_hour: Average hands played per hour
-        big_blind: Big blind size in dollars
-
-    Returns:
-        Dictionary with time estimates
-    """
+    """Hours/sessions to hit target at current winrate."""
     if target_br <= current_br:
         return {
             'hours_needed': 0,
@@ -276,18 +223,7 @@ def get_sample_trajectories(
     result: SimulationResult,
     n_samples: int = 100,
 ) -> np.ndarray:
-    """
-    Get a subset of trajectories for plotting.
-
-    Selects evenly spaced trajectories to show distribution.
-
-    Args:
-        result: SimulationResult from simulate_bankroll
-        n_samples: Number of trajectories to return
-
-    Returns:
-        Array of shape (n_samples, hands+1)
-    """
+    """Evenly spaced trajectories for fan chart."""
     n_sims = result.trajectories.shape[0]
     if n_samples >= n_sims:
         return result.trajectories
@@ -304,15 +240,7 @@ def get_sample_trajectories(
 
 
 def get_percentile_trajectories(result: SimulationResult) -> dict:
-    """
-    Calculate percentile trajectories for confidence band plotting.
-
-    Args:
-        result: SimulationResult from simulate_bankroll
-
-    Returns:
-        Dictionary with percentile trajectories
-    """
+    """p5/p25/p50/p75/p95 trajectories for confidence bands."""
     trajectories = result.trajectories
 
     return {

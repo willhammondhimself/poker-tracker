@@ -1,9 +1,4 @@
-"""
-The Truth Seeker - Bayesian Winrate Estimation.
-
-Uses Bootstrap resampling to estimate the posterior distribution
-of true winrate and calculate probability of long-term profitability.
-"""
+"""Bootstrap winrate estimation. 10k iterations, 95% CI."""
 
 import numpy as np
 import pandas as pd
@@ -14,12 +9,7 @@ from scipy import stats
 
 
 class WinrateEstimator:
-    """
-    Bootstrap-based winrate estimation.
-
-    Performs bootstrap resampling to generate a posterior distribution
-    of the true winrate (BB/100) and calculates confidence intervals.
-    """
+    """Bootstrap winrate CI."""
 
     def __init__(
         self,
@@ -27,14 +17,7 @@ class WinrateEstimator:
         n_bootstrap: int = 10000,
         confidence: float = 0.95,
     ):
-        """
-        Initialize the winrate estimator.
-
-        Args:
-            hand_results: List of hand-level PnL in BB.
-            n_bootstrap: Number of bootstrap iterations.
-            confidence: Confidence level for HDI (default 0.95).
-        """
+        """Needs 100+ hands."""
         self.hand_results = np.array(hand_results)
         self.n_bootstrap = n_bootstrap
         self.confidence = confidence
@@ -48,8 +31,8 @@ class WinrateEstimator:
         if len(self.hand_results) >= 100:
             self._run_bootstrap()
 
-    def _run_bootstrap(self) -> None:
-        """Run bootstrap resampling to estimate winrate distribution."""
+    def _run_bootstrap(self):
+        """10k bootstrap samples -> posterior distribution."""
         n_hands = len(self.hand_results)
 
         # Calculate observed winrate (BB/100)
@@ -76,12 +59,7 @@ class WinrateEstimator:
         self.prob_profitable = np.mean(self.samples > 0)
 
     def get_summary(self) -> dict:
-        """
-        Get summary statistics.
-
-        Returns:
-            Dictionary with estimation metrics.
-        """
+        """Point estimate, HDI, P(profitable)."""
         if self.samples is None:
             return {
                 'point_estimate': 0,
@@ -102,12 +80,7 @@ class WinrateEstimator:
         }
 
     def get_interpretation(self) -> str:
-        """
-        Get human-readable interpretation.
-
-        Returns:
-            Interpretation string.
-        """
+        """Human-readable verdict."""
         if self.samples is None:
             return "Need at least 100 hands for reliable estimation."
 
@@ -138,16 +111,7 @@ def render_posterior_chart(
     hand_results: list[float],
     title: str = "Posterior Winrate Distribution (Bootstrap)",
 ) -> Optional[WinrateEstimator]:
-    """
-    Render the posterior distribution histogram.
-
-    Args:
-        hand_results: List of hand-level PnL in BB.
-        title: Chart title.
-
-    Returns:
-        WinrateEstimator instance or None if insufficient data.
-    """
+    """Histogram of bootstrap winrate samples."""
     if len(hand_results) < 100:
         st.warning("Need at least 100 hands for Bayesian estimation.")
         return None
@@ -239,17 +203,7 @@ def calculate_required_sample_size(
     variance: float = 68.0,
     confidence: float = 0.95,
 ) -> int:
-    """
-    Calculate required sample size for target precision.
-
-    Args:
-        target_precision: Desired margin of error in BB/100.
-        variance: Assumed per-hand variance (default 68 BB²).
-        confidence: Confidence level.
-
-    Returns:
-        Required number of hands.
-    """
+    """Hands needed for +/- target_precision BB/100."""
     z = stats.norm.ppf((1 + confidence) / 2)
     # SE = sqrt(variance / n) * 100
     # target_precision = z * SE

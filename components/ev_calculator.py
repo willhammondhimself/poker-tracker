@@ -1,9 +1,4 @@
-"""
-Luck Bucket - EV Calculator for All-In Spots.
-
-Calculates expected value for common all-in scenarios
-and tracks luck factor (actual results vs EV).
-"""
+"""EV calculator for all-in spots. Tracks luck over time."""
 
 import streamlit as st
 from typing import Optional

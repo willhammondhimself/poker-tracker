@@ -1,9 +1,4 @@
-"""
-Villain Taxonomy - Unsupervised Learning with K-Means.
-
-Uses PCA for dimensionality reduction and K-Means clustering
-to automatically classify opponents into behavioral archetypes.
-"""
+"""PCA + K-means to cluster villains into archetypes."""
 
 import numpy as np
 import pandas as pd
@@ -46,12 +41,7 @@ ARCHETYPES = {
 
 
 class VillainCluster:
-    """
-    K-Means clustering for opponent classification.
-
-    Reduces player stats to 2 PCA components and clusters
-    into distinct behavioral archetypes.
-    """
+    """K-means on opponent stats."""
 
     def __init__(
         self,
@@ -59,14 +49,7 @@ class VillainCluster:
         min_hands: int = 50,
         n_clusters: int = 4,
     ):
-        """
-        Initialize the clustering model.
-
-        Args:
-            player_stats: DataFrame with columns: name, vpip, pfr, af, wtsd, hands_played
-            min_hands: Minimum hands required for inclusion.
-            n_clusters: Number of clusters (default 4).
-        """
+        """Needs 4+ opponents with 50+ hands each."""
         self.raw_stats = player_stats
         self.min_hands = min_hands
         self.n_clusters = n_clusters

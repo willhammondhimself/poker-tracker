@@ -1,9 +1,4 @@
-"""
-Tilt Detection Engine - Behavioral Finance Analysis.
-
-Quantifies emotional control by detecting sub-optimal play patterns
-after losses. Uses behavioral finance principles to identify tilt.
-"""
+"""Tilt detection - spots downswings and loss-chasing."""
 
 from typing import Optional
 from dataclasses import dataclass
@@ -12,17 +7,17 @@ from datetime import datetime, timedelta
 
 @dataclass
 class TiltAnalysis:
-    """Results from tilt detection analysis."""
-    tilt_score: float                # 0-10 scale
-    tilt_level: str                  # 'none', 'mild', 'moderate', 'severe'
-    downswing_detected: bool         # >10bb loss in 50 hands
-    vpip_increase: float             # % increase after losses
-    aggression_spike: bool           # Unusual aggression increase
-    loss_chasing: bool               # Playing marginal hands after losses
-    session_tilt_events: int         # Number of tilt episodes
-    warning_message: str             # Human-readable warning
-    recommendations: list[str]       # Tips to address tilt
-    confidence: str                  # 'high', 'medium', 'low'
+    """Tilt analysis result."""
+    tilt_score: float
+    tilt_level: str
+    downswing_detected: bool
+    vpip_increase: float
+    aggression_spike: bool
+    loss_chasing: bool
+    session_tilt_events: int
+    warning_message: str
+    recommendations: list[str]
+    confidence: str
 
     def to_dict(self) -> dict:
         return {
@@ -46,26 +41,7 @@ def detect_tilt(
     vpip_increase_threshold: float = 10.0,
     big_blind: float = 0.10,
 ) -> TiltAnalysis:
-    """
-    Analyze a session's hands for tilt indicators.
-
-    Tilt Detection Algorithm:
-    1. Identify downswings (>10bb loss in rolling window)
-    2. Check if VPIP increased >10% after downswing
-    3. Look for aggression spikes post-loss
-    4. Detect "revenge hands" (playing weak hands after losses)
-    5. Calculate composite tilt score (0-10)
-
-    Args:
-        session_hands: List of hand dicts from session, chronologically ordered
-        window_size: Rolling window for downswing detection (default 50 hands)
-        downswing_threshold_bb: BB loss to trigger downswing (default 10)
-        vpip_increase_threshold: VPIP increase % to flag tilt (default 10%)
-        big_blind: Big blind size for BB calculation
-
-    Returns:
-        TiltAnalysis with score and recommendations
-    """
+    """Check session for tilt indicators. Returns 0-10 score."""
     # Need minimum hands for analysis
     if len(session_hands) < 20:
         return TiltAnalysis(
@@ -288,17 +264,7 @@ def detect_tilt(
 
 
 def _estimate_hand_strength(hole_cards: list) -> float:
-    """
-    Estimate preflop hand strength on 0-1 scale.
-
-    Simple heuristic based on card ranks and suitedness.
-
-    Args:
-        hole_cards: List of (rank, suit) tuples
-
-    Returns:
-        Float from 0.0 (weakest) to 1.0 (strongest)
-    """
+    """Rough preflop strength 0-1. Good enough for tilt detection."""
     if len(hole_cards) != 2:
         return 0.5  # Unknown
 
@@ -340,16 +306,7 @@ def _estimate_hand_strength(hole_cards: list) -> float:
 
 
 def get_session_tilt_summary(sessions: list[dict], hands: list[dict]) -> list[dict]:
-    """
-    Calculate tilt scores for multiple sessions.
-
-    Args:
-        sessions: List of session dicts
-        hands: List of all hands
-
-    Returns:
-        List of dicts with session_id and tilt analysis
-    """
+    """Tilt scores for all sessions."""
     summaries = []
 
     for session in sessions:

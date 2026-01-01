@@ -1,9 +1,4 @@
-"""
-Quant Radar - Playstyle Comparison Visualization.
-
-Visualizes Hero's playing stats against GTO baseline
-using a radar/spider chart for quick pattern recognition.
-"""
+"""Radar chart comparing your stats to GTO baseline."""
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -39,15 +34,7 @@ OPTIMAL_RANGES = {
 
 
 def calculate_hero_stats(hands: list[dict]) -> dict:
-    """
-    Calculate Hero's stats from hand history.
-
-    Args:
-        hands: List of hand dictionaries
-
-    Returns:
-        Dict with VPIP, PFR, 3Bet, Agg, WTSD
-    """
+    """VPIP/PFR/3Bet/Agg/WTSD from hands."""
     if not hands:
         return {k: 0.0 for k in GTO_BASELINE.keys()}
 

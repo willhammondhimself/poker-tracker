@@ -1,7 +1,4 @@
-"""
-Quant Poker Edge - Main Application Entry Point
-A professional-grade poker analytics platform.
-"""
+"""Main streamlit app."""
 
 import streamlit as st
 import pandas as pd
@@ -68,8 +65,8 @@ st.set_page_config(
 )
 
 
-def init_session_state() -> None:
-    """Initialize session state variables."""
+def init_session_state():
+    """Init session state."""
     if "dark_mode" not in st.session_state:
         st.session_state.dark_mode = True
     if "active_session_id" not in st.session_state:
@@ -81,8 +78,8 @@ def init_session_state() -> None:
         st.session_state.bankroll_target = settings.get("bankroll_target", 500.00)
 
 
-def apply_theme() -> None:
-    """Apply dark/light theme based on session state."""
+def apply_theme():
+    """Apply theme."""
     if st.session_state.dark_mode:
         st.markdown(
             """
@@ -94,8 +91,8 @@ def apply_theme() -> None:
         )
 
 
-def render_sidebar() -> str:
-    """Render sidebar navigation and settings. Returns selected page."""
+def render_sidebar():
+    """Sidebar nav. Returns selected page."""
     with st.sidebar:
         st.title("♠️ Quant Poker Edge")
 
@@ -197,8 +194,8 @@ def render_sidebar() -> str:
     return page
 
 
-def render_dashboard() -> None:
-    """Render the main dashboard page."""
+def render_dashboard():
+    """Main dashboard."""
     st.header("📊 Dashboard")
 
     sessions = load_sessions()
@@ -524,8 +521,8 @@ def render_dashboard() -> None:
                                     st.rerun()
 
 
-def render_log_session() -> None:
-    """Render the session logging page with start/end/log modes."""
+def render_log_session():
+    """Session logging page."""
     # Check if there's an active session
     active_session = None
     if st.session_state.active_session_id:
@@ -564,8 +561,8 @@ def render_log_session() -> None:
             render_session_form(on_submit=lambda s: save_session(s) is not None)
 
 
-def render_hand_logger() -> None:
-    """Render the hand logger page with card selector and session linking."""
+def render_hand_logger():
+    """Hand logger page."""
     st.header("🃏 Hand Logger")
 
     # Quick entry at TOP for mobile-first design
@@ -930,8 +927,8 @@ def render_hand_logger() -> None:
                             st.rerun()
 
 
-def render_data_import() -> None:
-    """Render the data import page for Ignition hand histories."""
+def render_data_import():
+    """Ignition import page."""
     st.header("📥 Data Import")
     st.markdown("Import hand histories from **Ignition Casino** (Zone Poker)")
 
@@ -1101,8 +1098,8 @@ def render_data_import() -> None:
         st.info("No imported sessions yet. Upload a hand history file above to get started.")
 
 
-def render_my_ranges() -> None:
-    """Render the range chart visualization page."""
+def render_my_ranges():
+    """Range chart page."""
     import plotly.graph_objects as go
 
     st.header("📊 My Ranges")
@@ -1330,15 +1327,15 @@ def render_my_ranges() -> None:
         st.success("No significant leaks detected! All hands are profitable or break-even.")
 
 
-def render_analytics() -> None:
-    """Render the analytics page with charts and metrics."""
+def render_analytics():
+    """Analytics page."""
     sessions = load_sessions()
     hands = load_hands()
     render_analytics_page(sessions, hands)
 
 
-def render_simulator() -> None:
-    """Render Monte Carlo bankroll simulator page."""
+def render_simulator():
+    """Monte Carlo sim page."""
     st.title("🎲 Monte Carlo Simulator")
     st.markdown("*Risk of Ruin analysis using Monte Carlo simulation*")
 
@@ -1733,8 +1730,8 @@ def render_simulator() -> None:
             """)
 
 
-def render_quant_lab() -> None:
-    """Render the Quant Research Lab page with advanced analytics."""
+def render_quant_lab():
+    """Quant lab - GARCH, clustering, bayesian stuff."""
     import pandas as pd
     from analytics.volatility import VolatilityModel, render_volatility_chart
     from analytics.clustering import VillainCluster, render_cluster_chart
@@ -2005,8 +2002,7 @@ def render_quant_lab() -> None:
                 st.rerun()
 
 
-def main() -> None:
-    """Main application entry point."""
+def main():
     init_session_state()
     apply_theme()
 

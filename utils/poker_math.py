@@ -1,9 +1,4 @@
-"""
-Poker Math Utilities - Statistical Analysis for Winrate.
-
-Provides confidence interval calculations and statistical
-interpretations for poker results.
-"""
+"""Winrate CI and sample size calculations."""
 
 import math
 from typing import Optional
@@ -15,23 +10,7 @@ def calculate_winrate_ci(
     variance: float = 68.0,
     confidence: float = 0.95,
 ) -> dict:
-    """
-    Calculate confidence interval for true winrate.
-
-    Uses the formula: CI = winrate +/- (z_score * sqrt(variance / hands) * 100)
-
-    Standard poker variance is approximately 68 BB^2 per hand for
-    6-max No Limit Hold'em cash games.
-
-    Args:
-        total_bb_won: Total big blinds won/lost
-        hands_played: Number of hands in sample
-        variance: Per-hand variance in BB^2 (default 68 for NLHE)
-        confidence: Confidence level (default 0.95 for 95% CI)
-
-    Returns:
-        Dictionary with winrate, CI bounds, interpretation, and sample adequacy
-    """
+    """95% CI for winrate. Uses ~68 BB^2 variance for 6max NLHE."""
     # Minimum hand threshold
     if hands_played < 10:
         return {
@@ -166,17 +145,7 @@ def hands_needed_for_confidence(
     variance: float = 68.0,
     confidence: float = 0.95,
 ) -> int:
-    """
-    Calculate hands needed to achieve target margin of error.
-
-    Args:
-        target_margin: Desired margin of error in BB/100 (default +/- 5 BB/100)
-        variance: Per-hand variance in BB^2 (default 68)
-        confidence: Confidence level (default 0.95)
-
-    Returns:
-        Number of hands needed
-    """
+    """How many hands for +/- target_margin BB/100."""
     z_scores = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}
     z = z_scores.get(confidence, 1.96)
 
@@ -193,18 +162,7 @@ def calculate_hourly_rate_ci(
     session_profits: list[float],
     confidence: float = 0.95,
 ) -> Optional[dict]:
-    """
-    Calculate confidence interval for hourly rate.
-
-    Args:
-        total_profit: Total dollars won/lost
-        hours_played: Total hours played
-        session_profits: List of profit from each session
-        confidence: Confidence level (default 0.95)
-
-    Returns:
-        Dictionary with hourly rate and CI bounds, or None if insufficient data
-    """
+    """CI for $/hr based on session-level variance."""
     if hours_played < 1 or len(session_profits) < 3:
         return None
 

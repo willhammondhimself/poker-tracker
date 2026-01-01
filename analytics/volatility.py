@@ -1,9 +1,4 @@
-"""
-Market Regime Detector - GARCH Volatility Modeling.
-
-Uses GARCH(1,1) to model conditional volatility of bankroll PnL,
-classifying the current market regime as Low, Medium, or High volatility.
-"""
+"""GARCH(1,1) on session PnL. Flags high/low variance regimes."""
 
 import numpy as np
 import pandas as pd
@@ -14,20 +9,10 @@ from arch import arch_model
 
 
 class VolatilityModel:
-    """
-    GARCH(1,1) volatility model for poker session PnL.
-
-    Fits a GARCH model to session returns and classifies the
-    current volatility regime relative to historical mean.
-    """
+    """GARCH volatility model."""
 
     def __init__(self, pnl_series: pd.Series):
-        """
-        Initialize the volatility model.
-
-        Args:
-            pnl_series: pandas Series of session PnL values (indexed by date).
-        """
+        """Needs 10+ sessions to fit."""
         self.pnl_series = pnl_series.dropna()
         self.model = None
         self.results = None

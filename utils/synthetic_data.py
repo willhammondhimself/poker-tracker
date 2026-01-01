@@ -1,11 +1,4 @@
-"""
-Synthetic Data Generator for Quant Research Platform.
-
-Generates realistic poker data for testing and demonstration:
-- Sessions with diverse PnL patterns
-- Opponents with distinct statistical profiles
-- Hands with realistic result distributions
-"""
+"""Generates fake data for demo/testing."""
 
 import json
 import random
@@ -64,18 +57,7 @@ def generate_synthetic_sessions(
     winrate_bb_hr: float = 5.0,
     variance: float = 80.0,
 ) -> list[dict]:
-    """
-    Generate synthetic poker sessions with realistic variance.
-
-    Args:
-        n: Number of sessions to generate.
-        start_date: Starting date for sessions.
-        winrate_bb_hr: Expected winrate in BB/hour.
-        variance: Standard deviation of hourly results.
-
-    Returns:
-        List of session dictionaries.
-    """
+    """Fake sessions with realistic variance."""
     if start_date is None:
         start_date = datetime.now() - timedelta(days=n * 2)
 
@@ -124,22 +106,7 @@ def generate_synthetic_sessions(
 
 
 def generate_synthetic_opponents(n: int = 25) -> list[dict]:
-    """
-    Generate synthetic opponents with distinct stat profiles.
-
-    Creates villains across all archetypes:
-    - 5 Nits
-    - 5 TAGs
-    - 5 LAGs
-    - 5 Calling Stations
-    - 5 Maniacs
-
-    Args:
-        n: Total number of opponents (distributed across types).
-
-    Returns:
-        List of opponent dictionaries.
-    """
+    """Fake opponents - 5 of each archetype."""
     opponents = []
     opponent_id = 1
 
@@ -198,22 +165,7 @@ def generate_synthetic_hands(
     session_id: int = 1,
     winrate_bb100: float = 5.0,
 ) -> list[dict]:
-    """
-    Generate synthetic hand results with realistic distribution.
-
-    Uses a mixture model:
-    - 70% small pots (-3 to +3 BB)
-    - 20% medium pots (-15 to +15 BB)
-    - 10% big pots (-100 to +100 BB)
-
-    Args:
-        n: Number of hands to generate.
-        session_id: Session ID to associate with.
-        winrate_bb100: Target winrate in BB/100.
-
-    Returns:
-        List of hand dictionaries.
-    """
+    """Fake hands. 70% small pots, 20% medium, 10% big."""
     hands = []
     positions = ['BTN', 'CO', 'MP', 'UTG', 'SB', 'BB']
     actions = ['fold', 'call', 'raise', '3-bet', 'all-in']
@@ -330,17 +282,7 @@ def save_synthetic_data(
     n_opponents: int = 25,
     n_hands: int = 500,
 ) -> dict:
-    """
-    Generate and save all synthetic data.
-
-    Args:
-        n_sessions: Number of sessions.
-        n_opponents: Number of opponents.
-        n_hands: Number of hands.
-
-    Returns:
-        Summary of generated data.
-    """
+    """Generate and save demo data."""
     # Ensure data directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
