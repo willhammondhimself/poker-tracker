@@ -1091,12 +1091,19 @@ def render_data_import():
                         total_profit = sum(h.get('result', 0) for h in hands)
                         duration = max(0.5, len(hands) / 60)  # ~60 hands/hour
 
+                        # Calculate buy-in and cash-out from stack sizes
+                        # buy_in = stack from first hand
+                        # cash_out = stack from last hand + last hand's result
+                        buy_in = hands[0].get('stack_size', 0)
+                        last_hand = hands[-1]
+                        cash_out = last_hand.get('stack_size', 0) + last_hand.get('result', 0)
+
                         session_data = {
                             'date': session_date,
                             'location': import_location,
                             'stake': most_common_stake,
-                            'buy_in': 0,
-                            'cash_out': 0,
+                            'buy_in': round(buy_in, 2),
+                            'cash_out': round(cash_out, 2),
                             'profit': round(total_profit, 2),
                             'duration_hours': round(duration, 1),
                             'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,
@@ -1129,12 +1136,17 @@ def render_data_import():
                         total_profit = sum(h.get('result', 0) for h in all_hands)
                         duration = max(1, len(all_hands) / 60)
 
+                        # Calculate buy-in and cash-out from stack sizes
+                        buy_in = all_hands[0].get('stack_size', 0)
+                        last_hand = all_hands[-1]
+                        cash_out = last_hand.get('stack_size', 0) + last_hand.get('result', 0)
+
                         session_data = {
                             'date': session_date,
                             'location': import_location,
                             'stake': most_common_stake,
-                            'buy_in': 0,
-                            'cash_out': 0,
+                            'buy_in': round(buy_in, 2),
+                            'cash_out': round(cash_out, 2),
                             'profit': round(total_profit, 2),
                             'duration_hours': round(duration, 1),
                             'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,

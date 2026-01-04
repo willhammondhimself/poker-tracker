@@ -307,6 +307,15 @@ def parse_single_hand(hand_text: str) -> Optional[dict]:
         )
         hero_seat = int(hero_seat_match.group(1)) if hero_seat_match else 1
 
+        # Extract hero's stack size
+        # Format: "Seat 4: UTG [ME] ($25 in chips)" or "Seat 4: [ME] ($25 in chips)"
+        stack_match = re.search(
+            r'Seat \d+:.*?\[ME\].*?\(\$?([\d.]+)\s+in chips\)',
+            hand_text,
+            re.IGNORECASE
+        )
+        stack_size = parse_money(stack_match.group(1)) if stack_match else 0.0
+
         # Determine position
         position = determine_position(hero_seat, button_seat, num_seats)
 
@@ -416,6 +425,7 @@ def parse_single_hand(hand_text: str) -> Optional[dict]:
             'action': preflop_action,
             'street_actions': street_actions if street_actions else None,
             'result': round(result, 2),
+            'stack_size': round(stack_size, 2),
             'notes': f'Zone Poker - {num_seats}max',
             'opponent_id': None,
             'opponent_name': None,
