@@ -227,7 +227,10 @@ def render_dashboard():
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Total Profit", f"${total_profit:,.0f}")
+        # Show profit with color indicator
+        profit_indicator = "🟢" if total_profit > 0 else "🔴" if total_profit < 0 else "⚪"
+        profit_sign = "+" if total_profit > 0 else ""
+        st.metric("Total P&L", f"{profit_indicator} {profit_sign}${total_profit:.2f}")
     with col2:
         st.metric("Sessions", sessions_count)
     with col3:
