@@ -68,7 +68,7 @@ def calculate_hero_stats(hands: list[dict]) -> dict:
             calls += 1
 
         # WTSD: Check if went to showdown (has river card and result)
-        board = hand.get('board', {})
+        board = hand.get('board') or {}
         if board.get('river') and hand.get('result', 0) != 0:
             showdowns += 1
 

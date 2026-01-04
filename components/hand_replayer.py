@@ -225,7 +225,7 @@ def render_hand_replayer(
 
     # Extract hand data
     hole_cards = hand.get('hole_cards', [])
-    board = hand.get('board', {})
+    board = hand.get('board') or {}
     flop = board.get('flop', [])
     turn = board.get('turn', [])
     river = board.get('river', [])
@@ -378,7 +378,7 @@ def render_compact_replay(hand: dict) -> None:
         hand: Hand dictionary
     """
     hole_cards = hand.get('hole_cards', [])
-    board = hand.get('board', {})
+    board = hand.get('board') or {}
     result = hand.get('result', 0)
 
     # Build compact display
