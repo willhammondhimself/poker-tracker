@@ -59,7 +59,7 @@ from components import (
 
 # Page Configuration
 st.set_page_config(
-    page_title="Quant Poker Edge",
+    page_title="AI Poker Coach",
     page_icon="♠️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -95,7 +95,7 @@ def apply_theme():
 def render_sidebar():
     """Sidebar nav. Returns selected page."""
     with st.sidebar:
-        st.title("♠️ Quant Poker Edge")
+        st.title("♠️ AI Poker Coach")
 
         # Live session indicator
         if st.session_state.active_session_id:

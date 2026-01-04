@@ -1,4 +1,4 @@
-"""Analytics components for Quant Poker Edge.
+"""Analytics components for AI Poker Coach.
 
 Provides comprehensive poker analytics including bankroll tracking,
 position analysis, streaks, and variance metrics.

@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Deploy Quant Poker Edge for 24/7 mobile access.
+Deploy AI Poker Coach for 24/7 mobile access.
 
 ---
 

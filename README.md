@@ -1,6 +1,6 @@
-# Poker Tracker
+# AI Poker Coach
 
-Session tracker I built for my Ignition grind. Wanted something that does bankroll math properly instead of a spreadsheet.
+Session tracker with AI analysis I built for my Ignition grind. Wanted something that does bankroll math properly and finds leaks automatically instead of a spreadsheet.
 
 ## What it does
 

@@ -1,4 +1,4 @@
-"""LeakFinder Analytics Engine for Quant Poker Edge.
+"""LeakFinder Analytics Engine for AI Poker Coach.
 
 Identifies negative EV spots, calculates positional winrates,
 and generates actionable leak recommendations.
