@@ -12,6 +12,7 @@ from utils.data_loader import (
     delete_session,
     save_hand,
     load_hands,
+    get_existing_hand_ids,
     load_opponents,
     get_or_create_opponent,
     get_opponent,
@@ -941,34 +942,87 @@ def render_data_import():
 
     st.markdown("---")
 
-    # File uploader
-    uploaded_file = st.file_uploader(
+    # File uploader - accepts multiple files
+    uploaded_files = st.file_uploader(
         "Upload Ignition Hand History (.txt)",
         type=['txt'],
-        help="Upload your Ignition/Bovada hand history text file",
+        accept_multiple_files=True,
+        help="Upload one or more Ignition/Bovada hand history files",
     )
 
-    if uploaded_file is not None:
-        # Read file content
-        file_content = uploaded_file.read().decode('utf-8')
+    if uploaded_files:
+        # Parse each file separately to support per-file sessions
+        files_data = []  # List of {filename, hands, new_hands, duplicates}
+        file_count = len(uploaded_files)
+        existing_hand_ids = get_existing_hand_ids()
 
-        with st.spinner("Parsing hand history..."):
-            # Parse the file
-            parsed_hands = parse_ignition_file(file_content)
+        with st.spinner(f"Parsing {file_count} file(s)..."):
+            for uploaded_file in uploaded_files:
+                file_content = uploaded_file.read().decode('utf-8')
+                parsed_hands = parse_ignition_file(file_content)
 
-        if not parsed_hands:
-            st.error("❌ No hands could be parsed from this file. Make sure it's a valid Ignition hand history.")
+                # Filter duplicates for this file
+                new_hands = []
+                duplicate_hands = []
+                for hand in parsed_hands:
+                    hand_id = hand.get('hand_id')
+                    if hand_id and hand_id in existing_hand_ids:
+                        duplicate_hands.append(hand)
+                    else:
+                        new_hands.append(hand)
+                        if hand_id:
+                            existing_hand_ids.add(hand_id)
+
+                files_data.append({
+                    'filename': uploaded_file.name,
+                    'all_hands': parsed_hands,
+                    'new_hands': new_hands,
+                    'duplicates': duplicate_hands,
+                })
+
+        # Calculate totals
+        total_parsed = sum(len(f['all_hands']) for f in files_data)
+        total_new = sum(len(f['new_hands']) for f in files_data)
+        total_dups = sum(len(f['duplicates']) for f in files_data)
+
+        if total_parsed == 0:
+            st.error("❌ No hands could be parsed from the uploaded files. Make sure they are valid Ignition hand histories.")
             return
 
-        # Show summary
-        summary = get_import_summary(parsed_hands)
+        # Show per-file breakdown
+        st.markdown("### 📁 Files Uploaded")
+        for f in files_data:
+            new_ct = len(f['new_hands'])
+            dup_ct = len(f['duplicates'])
+            if new_ct > 0:
+                file_profit = sum(h.get('result', 0) for h in f['new_hands'])
+                profit_color = "green" if file_profit >= 0 else "red"
+                st.markdown(
+                    f"**{f['filename']}**: {new_ct} new hands "
+                    f"(:{profit_color}[${file_profit:+.2f}])"
+                    + (f", {dup_ct} duplicates skipped" if dup_ct > 0 else "")
+                )
+            else:
+                st.markdown(f"**{f['filename']}**: All {dup_ct} hands already imported")
 
-        st.success(f"✅ Found **{summary['total_hands']}** hands to import!")
+        if total_dups > 0:
+            st.warning(f"📊 Total: **{total_parsed}** hands parsed, **{total_new}** new, **{total_dups}** duplicates skipped")
+        else:
+            st.success(f"✅ Found **{total_new}** new hands from **{file_count}** file(s)!")
+
+        # If no new hands, stop here
+        if total_new == 0:
+            st.info("All hands in the uploaded files have already been imported.")
+            return
+
+        # Get summary of all new hands
+        all_new_hands = [h for f in files_data for h in f['new_hands']]
+        summary = get_import_summary(all_new_hands)
 
         # Summary stats
+        st.markdown("---")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            profit_color = "green" if summary['total_profit'] >= 0 else "red"
             st.metric("Total Profit", f"${summary['total_profit']:+.2f}")
         with col2:
             st.metric("Winning Hands", summary['winning_hands'])
@@ -983,95 +1037,117 @@ def render_data_import():
 
         st.markdown("---")
 
-        # Preview some hands
-        with st.expander("Preview Hands", expanded=False):
-            for i, hand in enumerate(parsed_hands[:5]):
-                cards = hand.get('hole_cards', [])
-                if len(cards) == 2:
-                    card_str = f"{cards[0][0]}{cards[0][1]} {cards[1][0]}{cards[1][1]}"
-                else:
-                    card_str = "?"
-                result = hand.get('result', 0)
-                color = "green" if result >= 0 else "red"
-                st.markdown(
-                    f"**{card_str}** | {hand.get('position')} | {hand.get('action')} | "
-                    f":{color}[${result:+.2f}]"
-                )
-            if len(parsed_hands) > 5:
-                st.caption(f"...and {len(parsed_hands) - 5} more hands")
-
-        st.markdown("---")
-
         # Import options
         st.markdown("### Import Options")
 
-        # Create or select session for imported hands
-        create_session = st.checkbox(
-            "Create new session for imported hands",
-            value=True,
-            help="Group imported hands under a new session entry",
+        # Session creation mode
+        session_mode = st.radio(
+            "How to organize sessions:",
+            options=["per_file", "combined"],
+            format_func=lambda x: "📁 One session per file (recommended)" if x == "per_file" else "📦 Combine all into one session",
+            index=0,
+            help="Per-file creates separate sessions for each uploaded file, making it easier to track individual playing sessions",
         )
 
-        if create_session:
-            session_col1, session_col2 = st.columns(2)
-            with session_col1:
-                import_location = st.text_input(
-                    "Location",
-                    value="Ignition Zone Poker",
-                )
-            with session_col2:
-                import_stake = st.selectbox(
-                    "Stake",
-                    options=summary['stakes'] if summary['stakes'] else ['0.05/0.10'],
-                )
+        import_location = st.text_input(
+            "Location",
+            value="Ignition Zone Poker",
+        )
 
         # Import button
         if st.button("📥 Import Hands", type="primary", use_container_width=True):
             with st.spinner("Importing hands..."):
-                session_id = None
+                from datetime import datetime
 
-                if create_session:
-                    # Create a new session for these hands
-                    from datetime import datetime
+                total_success = 0
+                sessions_created = 0
 
-                    # Get date from first hand or use today
-                    first_date = parsed_hands[0].get('date', datetime.now().isoformat())
-                    if isinstance(first_date, str):
-                        session_date = first_date[:10]
-                    else:
-                        session_date = first_date.strftime('%Y-%m-%d')
+                if session_mode == "per_file":
+                    # Create one session per file
+                    for f in files_data:
+                        if not f['new_hands']:
+                            continue
 
-                    # Calculate session stats
-                    total_profit = sum(h.get('result', 0) for h in parsed_hands)
-                    duration = max(1, len(parsed_hands) / 60)  # Estimate ~60 hands/hour
+                        hands = f['new_hands']
+                        # Get date from first hand in this file
+                        first_date = hands[0].get('date', datetime.now().isoformat())
+                        if isinstance(first_date, str):
+                            session_date = first_date[:10]
+                        else:
+                            session_date = first_date.strftime('%Y-%m-%d')
 
-                    session_data = {
-                        'date': session_date,
-                        'location': import_location,
-                        'stake': import_stake,
-                        'buy_in': 0,  # Unknown for imports
-                        'cash_out': 0,
-                        'profit': round(total_profit, 2),
-                        'duration_hours': round(duration, 1),
-                        'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,
-                        'notes': f'Imported {len(parsed_hands)} hands from Ignition',
-                        'status': 'completed',
-                        'source': 'ignition_import',
-                    }
+                        # Get stake from hands (most common)
+                        stakes = [h.get('stake', '0.05/0.10') for h in hands]
+                        most_common_stake = max(set(stakes), key=stakes.count)
 
-                    session_id = save_session(session_data)
+                        # Calculate session stats
+                        total_profit = sum(h.get('result', 0) for h in hands)
+                        duration = max(0.5, len(hands) / 60)  # ~60 hands/hour
 
-                # Save all hands
-                success_count = 0
-                for hand in parsed_hands:
-                    if save_hand(hand, session_id):
-                        success_count += 1
+                        session_data = {
+                            'date': session_date,
+                            'location': import_location,
+                            'stake': most_common_stake,
+                            'buy_in': 0,
+                            'cash_out': 0,
+                            'profit': round(total_profit, 2),
+                            'duration_hours': round(duration, 1),
+                            'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,
+                            'notes': f'{f["filename"]}: {len(hands)} hands',
+                            'status': 'completed',
+                            'source': 'ignition_import',
+                            'hands_played': len(hands),
+                        }
 
-            if success_count > 0:
-                st.success(f"✅ Successfully imported **{success_count}** hands!")
+                        session_id = save_session(session_data)
+                        if session_id:
+                            sessions_created += 1
+                            for hand in hands:
+                                if save_hand(hand, session_id):
+                                    total_success += 1
+
+                else:
+                    # Combined mode - one session for all files
+                    all_hands = [h for f in files_data for h in f['new_hands']]
+                    if all_hands:
+                        first_date = all_hands[0].get('date', datetime.now().isoformat())
+                        if isinstance(first_date, str):
+                            session_date = first_date[:10]
+                        else:
+                            session_date = first_date.strftime('%Y-%m-%d')
+
+                        stakes = [h.get('stake', '0.05/0.10') for h in all_hands]
+                        most_common_stake = max(set(stakes), key=stakes.count)
+
+                        total_profit = sum(h.get('result', 0) for h in all_hands)
+                        duration = max(1, len(all_hands) / 60)
+
+                        session_data = {
+                            'date': session_date,
+                            'location': import_location,
+                            'stake': most_common_stake,
+                            'buy_in': 0,
+                            'cash_out': 0,
+                            'profit': round(total_profit, 2),
+                            'duration_hours': round(duration, 1),
+                            'hourly_rate': round(total_profit / duration, 2) if duration > 0 else 0,
+                            'notes': f'Imported {len(all_hands)} hands from {file_count} file(s)',
+                            'status': 'completed',
+                            'source': 'ignition_import',
+                            'hands_played': len(all_hands),
+                        }
+
+                        session_id = save_session(session_data)
+                        if session_id:
+                            sessions_created = 1
+                            for hand in all_hands:
+                                if save_hand(hand, session_id):
+                                    total_success += 1
+
+            if total_success > 0:
+                st.success(f"✅ Imported **{total_success}** hands into **{sessions_created}** session(s)!")
                 st.balloons()
 
-                # Show next steps
                 st.markdown("### Next Steps")
                 st.markdown("""
                 - Go to **Dashboard** to see your updated stats
@@ -1341,7 +1417,8 @@ def render_simulator():
 
     # Get current stats from sessions for defaults
     sessions = load_sessions()
-    edge = get_edge_summary(sessions)
+    hands = load_hands()
+    edge = get_edge_summary(hands, sessions)
 
     # Default values from actual data or reasonable estimates
     default_winrate = edge.get('bb_per_100', 5.0) if edge.get('total_hands', 0) > 100 else 5.0

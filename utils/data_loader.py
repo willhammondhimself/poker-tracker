@@ -12,8 +12,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 
 # Default settings
 DEFAULT_SETTINGS = {
-    "bankroll": 350.00,
-    "bankroll_target": 500.00,
+    "bankroll": 500.00,
+    "bankroll_target": 1000.00,
 }
 
 
@@ -221,6 +221,17 @@ def load_hands(session_id: int | None = None) -> list[dict]:
         return hands
     except (FileNotFoundError, json.JSONDecodeError):
         return []
+
+
+def get_existing_hand_ids() -> set[str]:
+    """
+    Get all existing hand_id values for duplicate detection.
+
+    Returns:
+        set[str]: Set of hand_id strings (e.g., "IGN-123456").
+    """
+    hands = load_hands()
+    return {h.get("hand_id") for h in hands if h.get("hand_id")}
 
 
 # =============================================================================

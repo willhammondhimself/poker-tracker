@@ -144,7 +144,7 @@ def calculate_playstyle_stats(hands: list[dict]) -> dict:
         elif action == "call":
             calls += 1
 
-        board = hand.get("board", {})
+        board = hand.get("board") or {}
         if board.get("river") and hand.get("result", 0) != 0:
             showdowns += 1
 

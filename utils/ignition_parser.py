@@ -241,15 +241,15 @@ def parse_single_hand(hand_text: str) -> Optional[dict]:
             return None
         hand_id = hand_id_match.group(1)
 
-        # Extract date/time
+        # Extract date/time - Ignition uses YYYY-MM-DD format
         date_match = re.search(
-            r'(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})',
+            r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})',
             hand_text
         )
         if date_match:
             date_str = date_match.group(1)
             try:
-                hand_date = datetime.strptime(date_str, '%Y/%m/%d %H:%M:%S')
+                hand_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 hand_date = datetime.now()
         else:
@@ -326,38 +326,78 @@ def parse_single_hand(hand_text: str) -> Optional[dict]:
             board['river'] = parse_cards(river_match.group(1))
 
         # Extract result (profit/loss)
-        # Look for "Hand result" or net won/lost
-        result_match = re.search(
-            r'\[ME\]\s*:\s*Hand result[- ]\$?([\d.]+)',
+        # Step 1: Calculate total invested by hero
+        invested = 0.0
+
+        # Match blinds and posts
+        blind_matches = re.findall(
+            r'\[ME\]\s*:\s*(?:Small Blind|Big blind|Posts chip)\s*\$?([\d.]+)',
             hand_text,
             re.IGNORECASE
         )
-        if result_match:
-            result = parse_money(result_match.group(1))
-        else:
-            # Try to find won amount in summary
-            won_match = re.search(
-                r'\[ME\].*?\$?([\d.]+).*?\[',
-                hand_text
-            )
-            if won_match:
-                result = parse_money(won_match.group(1))
-            else:
-                result = 0.0
+        for m in blind_matches:
+            invested += parse_money(m)
 
-        # Check if hero folded (loss = amount invested)
-        if re.search(r'\[ME\]\s*:\s*Folds', hand_text, re.IGNORECASE):
-            # Calculate amount invested before folding
-            invested = 0.0
-            invest_matches = re.findall(
-                r'\[ME\]\s*:\s*(?:Calls?|Raises?|Bets?|Small Blind|Big Blind)[^\d]*\$?([\d.]+)',
-                hand_text,
-                re.IGNORECASE
-            )
-            for m in invest_matches:
-                invested += parse_money(m)
-            if invested > 0 and result == 0:
-                result = -invested
+        # Match calls
+        call_matches = re.findall(
+            r'\[ME\]\s*:\s*Calls?\s*\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        for m in call_matches:
+            invested += parse_money(m)
+
+        # Match bets
+        bet_matches = re.findall(
+            r'\[ME\]\s*:\s*Bets?\s*\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        for m in bet_matches:
+            invested += parse_money(m)
+
+        # Match all-ins
+        allin_matches = re.findall(
+            r'\[ME\]\s*:\s*All-in\s*\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        for m in allin_matches:
+            invested += parse_money(m)
+
+        # Match raises - "Raises $X to $Y" means total bet is Y on that street
+        # We need the "to" amount, not the raise amount
+        raise_matches = re.findall(
+            r'\[ME\]\s*:\s*Raises\s*\$?[\d.]+\s+to\s+\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        for m in raise_matches:
+            invested += parse_money(m)
+
+        # Step 2: Subtract returned uncalled bets
+        return_matches = re.findall(
+            r'\[ME\]\s*:\s*Return uncalled portion of bet\s*\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        for m in return_matches:
+            invested -= parse_money(m)
+
+        # Step 3: Determine win or loss
+        # "Hand result $X" = total pot won (not profit!)
+        # Profit = pot won - amount invested
+        win_match = re.search(
+            r'\[ME\]\s*:\s*Hand result\s*\$?([\d.]+)',
+            hand_text,
+            re.IGNORECASE
+        )
+        if win_match:
+            pot_won = parse_money(win_match.group(1))
+            result = pot_won - invested  # Profit = won - invested
+        else:
+            # No "Hand result" = hero lost (folded or lost at showdown)
+            result = -invested if invested > 0 else 0.0
 
         # Extract preflop action
         preflop_action = extract_preflop_action(hand_text, '[ME]')
