@@ -208,7 +208,14 @@ def render_dashboard():
     df = pd.DataFrame(sessions)
 
     # Calculate summary stats
-    df["profit"] = df["cash_out"] - df["buy_in"]
+    # For manual sessions, calculate profit from buy_in/cash_out
+    # For imported sessions, profit is already calculated from hand results
+    # Only overwrite if profit field is missing or zero and we have buy_in/cash_out data
+    if (df["profit"] == 0).any() and (df["buy_in"] != 0).any():
+        mask = (df["profit"] == 0) & (df["buy_in"] != 0)
+        df.loc[mask, "profit"] = df.loc[mask, "cash_out"] - df.loc[mask, "buy_in"]
+
+    # Recalculate hourly rate from stored profit
     df["hourly_rate"] = df["profit"] / df["duration_hours"]
 
     total_profit = df["profit"].sum()
